@@ -1,0 +1,476 @@
+#!/bin/bash
+
+# Pull user defined variables
+source "$(dirname "$0")/setup_variables"
+source "$(dirname "$0")/git-crypt-helpers.sh"
+
+## Check variables are not empty
+if [ -z "$PASSPHRASE" ] || [ -z "$REALNAME" ] || [ -z "$EMAIL" ] || [ -z "$KEYPIN" ] || [ -z "$ADMINPIN" ] || [ -z "$RESETCODE" ]
+then
+  echo "A required variable is not. Review and edit 'setup_variables' and try again."
+  exit 1
+fi
+
+# Public Key Save Path
+# Used to export publickeys for user to upload to gitlab web UI
+PUBKEY_PATH="${HOME}/Documents/myPublicKeys/"
+
+## Don't modify below
+OS="$(uname -s)"
+case "$OS" in
+  Linux)
+    if [[ -f "/etc/os-release" ]]; then
+      grep -q 'NAME="Ubuntu"' /etc/os-release || { echo 'Unsupported Linux distribution. We only support Ubuntu.'; exit 1; }
+    else
+      echo 'Unsupported Linux distribution. We only support Ubuntu.'
+      exit 1
+    fi
+    ;;
+  Darwin)
+    ;; # macOS -- supported
+  *)
+    echo "Unsupported OS: $OS"
+    exit 1
+    ;;
+esac
+
+set -euo pipefail
+
+# Detect user's shell RC file for profile modifications
+case "${SHELL:-/bin/bash}" in
+  */zsh)  SHELL_RC="$HOME/.zshrc" ;;
+  */bash) SHELL_RC="$HOME/.bashrc" ;;
+  *)      SHELL_RC="$HOME/.profile" ;;
+esac
+
+unset SSH_AUTH_SOCK
+
+function init_ez {
+  install
+  sleep 1
+  generate_master
+  cleanup
+}
+
+function setup_key_ez {
+  reset_yubikey
+  sleep 1
+  keys_to_card
+  sleep 1
+  enable_hmac
+}
+
+function setup_git_commit_signing {
+  git config --global commit.gpgsign true # forces gpg signing globally
+  git config --global user.signingkey $(gpg --list-secret-keys --keyid-format LONG | grep sec | cut -d ' ' -f4 | cut -c9-) # Sets the Signing Key to the GPG Key Created
+  git config --global user.name $REALNAME
+  git config --global user.email $EMAIL
+}
+
+function get_git_config {
+  echo 'Current Git Config'
+  echo "******************"
+  echo 'Current Git Name = ' $(git config --get user.name)
+  echo 'Current Git Email = ' $(git config --get user.email)
+  echo 'Automatically sign commits = ' $(git config --get commit.gpgsign)
+  echo ""
+}
+
+function setup_gpg_agent {
+  git-crypt-setup-gpg-agent "$SHELL_RC" "$OS"
+}
+
+function setup_ssh_forwarding {
+  git-crypt-setup-ssh-forwarding "$SHELL_RC" "$OS"
+}
+
+function copy_remote_gpg_stubs {
+  git-crypt-copy-remote-gpg-stubs "${1:-}" "$EMAIL"
+}
+
+function test_gpg_signing {
+  echo "Begin Signature Test"
+  echo "********************"
+  gpg --output ~/rc.sig --sign /etc/hosts 1> /dev/null
+  gpg --verify ~/rc.sig
+  rm -f ~/rc.sig
+  echo ""
+  echo "Signature Test Complete"
+  echo ""
+}
+
+function export_pubkeys {
+  #echo "$PUBKEY_PATH"
+  mkdir -p "$PUBKEY_PATH"
+  #ssh-add -L > $PUBKEY_PATH/ssh.pubkey # Causing an error with the ssh-agent. Commented out for now
+  gpg --armor --export > $PUBKEY_PATH/gpg.pubkey
+}
+
+function create_luks_container {
+  if [[ "$OS" == "Darwin" ]]; then
+    echo "LUKS containers are not supported on macOS (requires Linux dm-crypt)."
+    exit 1
+  fi
+  if [ -f "$LUKS_PATH" ]
+  then
+    echo "File Exists for luks container, remove by hand before continue"
+    exit 1
+  else
+    enable_hmac
+    dd of="$LUKS_PATH" if=/dev/zero bs=1G count=0 seek="$LUKS_SIZE_IN_GB" 1> /dev/null
+    echo -n "$(ykchalresp -2 "$KEYPIN")" | cryptsetup -v --pbkdf pbkdf2 luksFormat "$LUKS_PATH"
+    echo -n "$(ykchalresp -2 "$KEYPIN")" | sudo cryptsetup open "$LUKS_PATH" luks &>/dev/null
+    sudo mkfs.ext4 /dev/mapper/luks > /dev/null 2>&1
+    sudo fsck /dev/mapper/luks > /dev/null 2>&1
+  fi
+  mkdir -p "$HOME/luks"
+  sudo mount /dev/mapper/luks "$HOME/luks"
+  sudo chown -R "$USER:$(id -g)" "$HOME/luks"
+  echo ""
+  echo "*****************************************************************"
+  echo "consider including openvault.bash in your shellrc "
+  echo "file of choice for easier lock/unlock"
+  echo "container is locked based on your hmac key stored in your"
+  echo "yubikey and your pin, please make sure this directory"
+  echo "is backed up appropriately"
+  echo "your luks container is portable, you can back it up or move"
+  echo "it between laptops, but it will require a yubikey to open"
+  echo "*****************************************************************"
+}
+
+function cleanup {
+  killall -9 scdaemon > /dev/null 2>&1 || true
+  killall -9 gpg-agent > /dev/null 2>&1 || true
+}
+
+function enable_hmac {
+  # macOS does not need sudo for ykpersonalize (no udev/plugdev group)
+  local SUDO_PREFIX="sudo"
+  if [[ "$OS" == "Darwin" ]]; then
+    SUDO_PREFIX=""
+  fi
+
+  if [[ -f "${HOME}/hmac_key" ]]; then
+    echo "Found existing hmac key, loading in slot 2"
+    key="$(cat "${HOME}/hmac_key")"
+    $SUDO_PREFIX ykpersonalize -a"${key}" -y -2 -ochal-resp -ochal-hmac -ohmac-lt64 -oserial-api-visible 1>/dev/null
+  else
+    echo "Generating new hmac key, loading in slot 2"
+    $SUDO_PREFIX ykpersonalize -y -2 -ochal-resp -ochal-hmac -ohmac-lt64 -oserial-api-visible 2>&1 | grep 'key: ' | sed 's/key: //g' > "${HOME}/hmac_key"
+  fi
+}
+
+function install {
+  if [[ "$OS" == "Darwin" ]]; then
+    if ! command -v brew &>/dev/null; then
+      echo "Homebrew is required on macOS. Install it from https://brew.sh"
+      exit 1
+    fi
+    brew install gnupg pinentry-mac ykpers 2>/dev/null || brew upgrade gnupg pinentry-mac ykpers 2>/dev/null || true
+  else
+    sudo apt-get -y install gpg gpg-agent scdaemon yubikey-personalization yubikey-personalization-gui yubikey-luks > /dev/null 2>&1
+
+    cat << EOP | sudo tee /etc/udev/rules.d/99-yubikey.rules
+# YubiKey 4 OTP+U2F+CCID
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="1050", ATTRS{idProduct}=="0407", GROUP="plugdev"
+EOP
+    sudo udevadm control --reload-rules && sudo udevadm trigger
+  fi
+}
+
+function reset_yubikey {
+cleanup
+cat << EOP > yubikey_reset
+/hex
+scd serialno
+scd apdu 00 20 00 81 08 40 40 40 40 40 40 40 40
+scd apdu 00 20 00 81 08 40 40 40 40 40 40 40 40
+scd apdu 00 20 00 81 08 40 40 40 40 40 40 40 40
+scd apdu 00 20 00 81 08 40 40 40 40 40 40 40 40
+scd apdu 00 20 00 83 08 40 40 40 40 40 40 40 40
+scd apdu 00 20 00 83 08 40 40 40 40 40 40 40 40
+scd apdu 00 20 00 83 08 40 40 40 40 40 40 40 40
+scd apdu 00 20 00 83 08 40 40 40 40 40 40 40 40
+scd apdu 00 e6 00 00
+scd apdu 00 44 00 00
+/echo Card has been successfully reset.
+/bye
+EOP
+
+gpg-connect-agent -r yubikey_reset > /dev/null 2>&1
+
+rm -f yubikey_reset || true
+#ykpersonalize -m 5
+}
+
+function generate_master {
+rm -fR gnupg_home
+mkdir -p gnupg_home && chmod 700 gnupg_home && cd gnupg_home
+
+export GNUPGHOME="$(pwd)"
+cleanup
+cat << EOF > "$GNUPGHOME/gpg.conf"
+default-preference-list SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAMELLIA256 CAMELLIA192 CAMELLIA128 TWOFISH
+cert-digest-algo SHA512
+keyid-format 0xlong
+use-agent
+lock-never
+EOF
+
+if [[ "$OS" == "Darwin" ]]; then
+  PINENTRY_PATH="$(which pinentry-mac 2>/dev/null || echo /opt/homebrew/bin/pinentry-mac)"
+else
+  PINENTRY_PATH="/usr/bin/pinentry-gnome3"
+fi
+
+cat << EOF > "$GNUPGHOME/gpg-agent.conf"
+enable-ssh-support
+default-cache-ttl 600
+max-cache-ttl 7200
+default-cache-ttl-ssh 600
+max-cache-ttl-ssh 7200
+pinentry-program ${PINENTRY_PATH}
+EOF
+
+#Uppercase E needed gpg < 2.1.17
+cat > "$GNUPGHOME/genscript" <<EOF
+%echo Generating a basic OpenPGP key
+Key-Type: eddsa
+Key-Curve: Ed25519
+Name-Real: ${REALNAME}
+Name-Email: ${EMAIL}
+Expire-Date: 0
+Passphrase: ${PASSPHRASE}
+# Do a commit here, so that we can later print "done" :-)
+%commit
+%echo done
+EOF
+
+gpg --batch --generate-key genscript > /dev/null 2>&1
+rm -f genscript
+#gpg --list-secret-keys
+
+KEYID=$(gpg --list-options show-only-fpr-mbox --list-secret-keys 2>/dev/null | awk '{print $1;}')
+
+gpg --pinentry-mode=loopback --passphrase "$PASSPHRASE" --armor --export-secret-keys $KEYID > "$GNUPGHOME/master.key"
+gpgcmd="gpg --pinentry-mode=loopback --passphrase "$PASSPHRASE" "
+
+$gpgcmd --batch --quick-add-key $KEYID ed25519 sign 0
+$gpgcmd --batch --quick-add-key $KEYID cv25519 encr 0 # Per Yubikey Docs, ed25519 is not supported for Encryption/Decryption, only auth and signing. https://support.yubico.com/hc/en-us/articles/360016649139-YubiKey-5-2-Enhancements-to-OpenPGP-3-4-Support
+$gpgcmd --batch --quick-add-key $KEYID ed25519 auth 0 
+
+$gpgcmd --armor --export-secret-keys $KEYID > "$GNUPGHOME/mastersub.key"
+$gpgcmd --armor --export-secret-subkeys $KEYID > "$GNUPGHOME/sub.key"
+
+(cd ../ && COPYFILE_DISABLE=1 tar -cvvf - ./gnupg_home/ | gzip > "$KEYID-keyring.tar.gz") > /dev/null 2>&1
+echo "Generated Master Keyring and backed up into $KEYID-keyring.tar.gz"
+}
+
+function keys_to_card {
+  rm -fR gnupg_home_stubs
+  cp -a gnupg_home gnupg_home_stubs
+  cd gnupg_home_stubs
+  export GNUPGHOME="$(pwd)"
+  cleanup
+  KEYID=$(gpg --list-options show-only-fpr-mbox --list-secret-keys 2>/dev/null | awk '{print $1;}')
+
+  #Prompts to update YubiKey with user PIN, Admin PIN, and Reset Code
+(
+{
+  echo admin
+  echo passwd
+  echo 1
+  echo 123456
+  echo ${KEYPIN}
+  echo ${KEYPIN}
+
+  echo 3
+  echo 12345678
+  echo ${ADMINPIN}
+  echo ${ADMINPIN}
+
+  echo 4
+  echo ${ADMINPIN}
+  echo ${RESETCODE}
+  echo ${RESETCODE}
+
+  echo q
+  sleep 2
+
+  echo key-attr
+  echo 2
+  echo 1
+  sleep 2
+
+  echo 2
+  echo 1
+  echo ${ADMINPIN}
+  sleep 2
+
+  echo 2
+  echo 1
+  echo ${ADMINPIN}
+
+  echo q
+  echo exit
+} | gpg --command-fd=0 --status-fd=1 --pinentry-mode=loopback --card-edit
+
+#Prompts to move local generated keys to YubiKey slots 1, 2, and 3
+{
+  echo toggle
+  echo key 1
+  echo keytocard
+  echo 1
+  sleep 2
+  echo ${PASSPHRASE}
+  sleep 2
+  echo ${ADMINPIN}
+  sleep 2
+  echo key 1
+
+  echo key 2
+  echo keytocard
+  echo 2
+  sleep 2
+  echo ${PASSPHRASE}
+  sleep 2
+  echo ${ADMINPIN}
+  sleep 2
+  echo key 2
+
+  echo key 3
+  echo keytocard
+  echo 3
+  sleep 2
+  echo ${PASSPHRASE}
+  sleep 2
+  echo ${ADMINPIN}
+  sleep 2
+  echo key 3
+
+  echo save
+} | gpg --command-fd=0 --status-fd=1 --pinentry-mode=loopback --edit-key $KEYID
+) >/dev/null 2>&1
+
+gpgcmd="gpg --pinentry-mode=loopback --passphrase "$PASSPHRASE" "
+$gpgcmd -a --export-secret-keys $KEYID > "$GNUPGHOME/masterstubs.txt"
+$gpgcmd -a --export-secret-subkeys $KEYID > "$GNUPGHOME/subkeystubs.txt"
+$gpgcmd -a --export $KEYID > "$GNUPGHOME/publickey.txt"
+
+rm -f "$GNUPGHOME/private-keys-v1.d/*" > /dev/null 2>&1
+(cd ../ && COPYFILE_DISABLE=1 tar -cvvf - ./gnupg_home_stubs/ | gzip > "$KEYID-keystubs.tar.gz") >/dev/null 2>&1
+
+cd ../
+$gpgcmd --armor --export $EMAIL > $KEYID-pubkey-master.asc
+
+cleanup
+SSH_AUTH_SOCK=''
+sleep 5
+eval "$(gpg-agent --daemon --enable-ssh-support)"
+
+while [ ! -S $SSH_AUTH_SOCK ]
+do
+  sleep 1
+done
+
+sleep 5
+ssh-add -L > $KEYID-ssh-pubkey
+}
+
+function keys_to_user {
+  now=$(date +"%Y%m%d-%s")
+  mv ~/.gnupg ~/.gnupg."$now"
+  cp -r gnupg_home_stubs ~/.gnupg
+  sudo chown -R "$(whoami)" ~/.gnupg
+  sudo find ~/.gnupg -type f -exec chmod 600 {} \;
+  sudo find ~/.gnupg -type d -exec chmod 700 {} \;
+  setup_gpg_agent
+  cleanup
+}
+
+case "${1:-}" in
+  'init')
+    echo "Installing dependencies, you may be asked for a password"
+    install
+    echo "You may need to reboot to have access to the key as your user"
+    ;;
+  'reset-yubikey')
+    echo "Resetting your yubikey GPG app to factory defaults"
+    reset_yubikey
+    cleanup
+    ;;
+  'generate-master')
+    echo "Generating Master Key and Directory"
+    generate_master
+    cleanup
+    echo "Your Public Key for sharing is in $KEYID-pubkey-master.asc"
+    ;;
+  'keys-to-card')
+    echo "Copy Your Keys to your Yubikey"
+    keys_to_card
+    echo 'Complete! Run ./setup_yubikey keys-to-user to move the gnupg_home_stubs to ~/.gnupg/'
+    cleanup
+    ;;
+  'keys-to-user')
+    echo "Copy Your Keys to your home directory"
+    keys_to_user
+    echo 'Complete! Please reboot and return to README to complete setup'
+    cleanup
+    ;;
+  'enable-hmac')
+    enable_hmac
+    ;;
+  'create-luks-container')
+    create_luks_container
+    ;;
+  'test-gpg-signing')
+    echo "Beginning Test of GPG Signature:"
+    test_gpg_signing
+    ;;
+  'test-git-config')
+    get_git_config
+    ;;
+  'export-gpg-pubkey')
+    echo "Exporting your GPG public Key to $PUBKEY_PATH"
+    export_pubkeys
+    ;;
+  'setup-git-commit-signing')
+    echo "Modifying global git config to sign commits with your GPG key"
+    setup_git_commit_signing
+    echo 'Git Config Updated!'
+    sleep 1
+    echo 'Consider Test your signing with: "./setup_yubikey test-gpg-signing"'
+    ;;
+  'setup-gpg-agent')
+    setup_gpg_agent
+    ;;
+  'setup-ssh-forwarding')
+    setup_ssh_forwarding
+    ;;
+  'copy-remote-gpg-stubs')
+    copy_remote_gpg_stubs "${2:-}"
+    ;;
+  'init-ez')
+    echo "Initialzing and generating user keys"
+    init_ez
+    ;;
+  'setup-key-ez')
+    echo "Reseting YubiKey and copying user keys there"
+    setup_key_ez
+    ;;
+  'setup-git-ez')
+    echo "Beginning Express Git Configuration..."
+    setup_git_commit_signing
+    sleep 1
+    echo "Setup Complete! Testing Configuration..."
+    echo ""
+    sleep 1
+    get_git_config
+    sleep 1
+    test_gpg_signing
+    ;;
+  *)
+    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|create-luks-container|setup-git-ez|setup-git-commit-signing|setup-gpg-agent|setup-ssh-forwarding|copy-remote-gpg-stubs <user@host>|test-gpg-signing|export-gpg-pubkey|test-git-config>"
+    exit 1
+    ;;
+esac

@@ -1,0 +1,26 @@
+### Edit these variables to your liking ###
+
+# Staff identity
+# EXAMPLES:
+#   PASSPHRASE='your-passphrase-here' # Up to 64 characters
+#   REALNAME='Firstname Lastname'
+#   EMAIL='youremail@yourdomain.com'
+#
+PASSPHRASE=''
+REALNAME=''
+EMAIL=''
+
+# Yubikey Parameters
+# Values do NOT need to be numeric
+# EXAMPLES:
+#   KEYPIN='123456789' # Must be at least 6 chars; used often to unlock the yubikey
+#   ADMINPIN='111222111' # Must be at least 8 chars
+#   RESETCODE='91734682' # Must be at least 8 chars
+#
+KEYPIN='' # Must be at least 6 chars; used often to unlock the yubikey
+ADMINPIN='' # Must be at least 8 chars
+RESETCODE='' # Must be at least 8 chars
+
+# LUKS Parameters -- Typically, leave these alone
+LUKS_SIZE_IN_GB='500'
+LUKS_PATH="${HOME}/yubikey_luks"

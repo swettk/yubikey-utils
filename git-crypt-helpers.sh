@@ -1,5 +1,155 @@
 #!/usr/bin/env bash
 
+function _git-crypt-ensure-line-in-file {
+  local line="$1"
+  local file="$2"
+
+  touch "$file"
+  if ! grep -Fxq "$line" "$file"; then
+    printf '%s\n' "$line" >> "$file"
+  fi
+}
+
+function git-crypt-setup-gpg-agent {
+  local shell_rc="${1:-}"
+  local os_name="${2:-$(uname -s)}"
+  local gnupg_dir="$HOME/.gnupg"
+  local gpg_agent_conf="$gnupg_dir/gpg-agent.conf"
+  local pinentry_path
+
+  if [ -z "$shell_rc" ]; then
+    case "${SHELL:-/bin/bash}" in
+      */zsh)  shell_rc="$HOME/.zshrc" ;;
+      */bash) shell_rc="$HOME/.bashrc" ;;
+      *)      shell_rc="$HOME/.profile" ;;
+    esac
+  fi
+
+  mkdir -p "$gnupg_dir"
+  chmod 700 "$gnupg_dir"
+
+  if [ "$os_name" = "Darwin" ]; then
+    pinentry_path="$(command -v pinentry-mac 2>/dev/null || echo /opt/homebrew/bin/pinentry-mac)"
+  else
+    pinentry_path="$(command -v pinentry-gnome3 2>/dev/null || command -v pinentry-curses 2>/dev/null || echo /usr/bin/pinentry-gnome3)"
+  fi
+
+  touch "$gpg_agent_conf"
+  chmod 600 "$gpg_agent_conf"
+  _git-crypt-ensure-line-in-file "enable-ssh-support" "$gpg_agent_conf"
+  _git-crypt-ensure-line-in-file "default-cache-ttl 600" "$gpg_agent_conf"
+  _git-crypt-ensure-line-in-file "max-cache-ttl 7200" "$gpg_agent_conf"
+  _git-crypt-ensure-line-in-file "default-cache-ttl-ssh 600" "$gpg_agent_conf"
+  _git-crypt-ensure-line-in-file "max-cache-ttl-ssh 7200" "$gpg_agent_conf"
+  _git-crypt-ensure-line-in-file "pinentry-program ${pinentry_path}" "$gpg_agent_conf"
+
+  _git-crypt-ensure-line-in-file "export GPG_TTY=\$(tty)" "$shell_rc"
+  _git-crypt-ensure-line-in-file "export SSH_AUTH_SOCK=\$(gpgconf --list-dirs agent-ssh-socket)" "$shell_rc"
+
+  gpgconf --kill gpg-agent || true
+  gpgconf --launch gpg-agent
+  gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true
+
+  echo "Configured gpg-agent with ssh support."
+  echo "Reload your shell to pick up SSH_AUTH_SOCK from $shell_rc"
+}
+
+function git-crypt-setup-ssh-forwarding {
+  local shell_rc="${1:-}"
+  local os_name="${2:-$(uname -s)}"
+  local ssh_dir="$HOME/.ssh"
+  local ssh_config="$ssh_dir/config"
+  local agent_ssh_socket
+  local agent_extra_socket
+
+  git-crypt-setup-gpg-agent "$shell_rc" "$os_name" || return 1
+
+  agent_ssh_socket="$(gpgconf --list-dirs agent-ssh-socket)"
+  agent_extra_socket="$(gpgconf --list-dirs agent-extra-socket)"
+
+  mkdir -p "$ssh_dir"
+  chmod 700 "$ssh_dir"
+  touch "$ssh_config"
+  chmod 600 "$ssh_config"
+
+  if ! grep -Fq '# >>> yubikey-work forwarding >>>' "$ssh_config"; then
+    cat << EOF >> "$ssh_config"
+
+# >>> yubikey-work forwarding >>>
+Host *
+  ForwardAgent yes
+  IdentityAgent ${agent_ssh_socket}
+  StreamLocalBindUnlink yes
+  RemoteForward ~/.gnupg/S.gpg-agent ${agent_extra_socket}
+# <<< yubikey-work forwarding <<<
+EOF
+  fi
+
+  echo "Configured ssh forwarding in $ssh_config"
+  echo "Use ssh -A <host> to forward your YubiKey-backed ssh key."
+}
+
+function git-crypt-copy-remote-gpg-stubs {
+  local remote_host="${1:-}"
+  local key_identity="${2:-}"
+  local remote_gnupg_dir=".gnupg"
+  local temp_public
+  local temp_stubs
+
+  if [ -z "$remote_host" ]; then
+    printf 'Usage: git-crypt-copy-remote-gpg-stubs <user@host> [email-or-keyid]\n' >&2
+    return 1
+  fi
+
+  if [ -z "$key_identity" ]; then
+    key_identity="$(gpg --list-options show-only-fpr-mbox --list-secret-keys 2>/dev/null | awk 'NR==1 {print $1}')"
+  fi
+
+  if [ -z "$key_identity" ]; then
+    printf 'Could not determine GPG key identity. Pass email or key id as argument 2.\n' >&2
+    return 1
+  fi
+
+  if gpg --list-secret-keys --keyid-format LONG "$key_identity" 2>/dev/null | grep -q '^sec\s'; then
+    printf 'Refusing to copy because local keyring appears to include full secret keys.\n' >&2
+    printf 'Use a stub-only keyring (for example after ./setup_yubikey keys-to-user).\n' >&2
+    return 1
+  fi
+
+  temp_public="$(mktemp "${TMPDIR:-/tmp}/gpg-pubkey.XXXXXX.asc")"
+  temp_stubs="$(mktemp "${TMPDIR:-/tmp}/gpg-stubs.XXXXXX.asc")"
+
+  if ! gpg --armor --export "$key_identity" > "$temp_public"; then
+    rm -f "$temp_public" "$temp_stubs"
+    return 1
+  fi
+
+  if ! gpg --armor --export-secret-subkeys "$key_identity" > "$temp_stubs"; then
+    rm -f "$temp_public" "$temp_stubs"
+    return 1
+  fi
+
+  ssh "$remote_host" "mkdir -p '$remote_gnupg_dir' && chmod 700 '$remote_gnupg_dir'" || {
+    rm -f "$temp_public" "$temp_stubs"
+    return 1
+  }
+
+  scp "$temp_public" "$temp_stubs" "$remote_host:$remote_gnupg_dir/" || {
+    rm -f "$temp_public" "$temp_stubs"
+    return 1
+  }
+
+  ssh "$remote_host" "gpg --batch --import '$remote_gnupg_dir/$(basename "$temp_public")' '$remote_gnupg_dir/$(basename "$temp_stubs")' && rm -f '$remote_gnupg_dir/$(basename "$temp_public")' '$remote_gnupg_dir/$(basename "$temp_stubs")'" || {
+    rm -f "$temp_public" "$temp_stubs"
+    return 1
+  }
+
+  rm -f "$temp_public" "$temp_stubs"
+
+  echo "Copied and imported gpg public key + subkey stubs on $remote_host"
+  echo "Now connect with: ssh -A $remote_host"
+}
+
 function git-crypt-init {
   git-crypt init || return
 
@@ -727,6 +877,137 @@ function _git-crypt-generate-test-key {
   return 1
 }
 
+function _git-crypt-test-forwarding-features {
+  local sandbox_root="$1"
+  local test_home="$sandbox_root/forwarding-home"
+  local fake_bin="$sandbox_root/forwarding-bin"
+  local shell_rc="$test_home/.bashrc"
+  local call_log="$sandbox_root/forwarding-calls.log"
+  local gpg_agent_conf="$test_home/.gnupg/gpg-agent.conf"
+  local ssh_config="$test_home/.ssh/config"
+  local gpg_tty_count
+
+  mkdir -p "$test_home" "$fake_bin"
+  : > "$call_log"
+
+  cat > "$fake_bin/gpgconf" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = "--list-dirs" ]; then
+  if [ "${2:-}" = "agent-ssh-socket" ]; then
+    printf '/tmp/test-agent-ssh.sock\n'
+    exit 0
+  fi
+  if [ "${2:-}" = "agent-extra-socket" ]; then
+    printf '/tmp/test-agent-extra.sock\n'
+    exit 0
+  fi
+fi
+exit 0
+EOF
+
+  cat > "$fake_bin/gpg-connect-agent" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+  cat > "$fake_bin/gpg" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = "--list-options" ] && [ "${2:-}" = "show-only-fpr-mbox" ]; then
+  printf 'stub@example.com\n'
+  exit 0
+fi
+if [ "${1:-}" = "--list-secret-keys" ]; then
+  printf 'ssb   ed25519/FAKEKEY 2024-01-01 [A]\n'
+  exit 0
+fi
+if [ "${1:-}" = "--armor" ] && [ "${2:-}" = "--export" ]; then
+  printf 'PUBLIC-KEY\n'
+  exit 0
+fi
+if [ "${1:-}" = "--armor" ] && [ "${2:-}" = "--export-secret-subkeys" ]; then
+  printf 'SUBKEY-STUBS\n'
+  exit 0
+fi
+exit 0
+EOF
+
+  cat > "$fake_bin/ssh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'ssh %s\n' "$*" >> "$FAKE_CALL_LOG"
+exit 0
+EOF
+
+  cat > "$fake_bin/scp" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'scp %s\n' "$*" >> "$FAKE_CALL_LOG"
+exit 0
+EOF
+
+  chmod +x "$fake_bin/gpgconf" "$fake_bin/gpg-connect-agent" "$fake_bin/gpg" "$fake_bin/ssh" "$fake_bin/scp"
+
+  HOME="$test_home" PATH="$fake_bin:$PATH" SHELL=/bin/bash \
+    git-crypt-setup-gpg-agent "$shell_rc" Linux
+
+  [ -f "$gpg_agent_conf" ] || {
+    printf 'Forwarding test failed: gpg-agent.conf not created\n' >&2
+    return 1
+  }
+
+  grep -Fqx 'enable-ssh-support' "$gpg_agent_conf" || {
+    printf 'Forwarding test failed: enable-ssh-support missing\n' >&2
+    return 1
+  }
+
+  grep -Eq '^pinentry-program ' "$gpg_agent_conf" || {
+    printf 'Forwarding test failed: pinentry-program missing\n' >&2
+    return 1
+  }
+
+  HOME="$test_home" PATH="$fake_bin:$PATH" SHELL=/bin/bash \
+    git-crypt-setup-gpg-agent "$shell_rc" Linux
+
+  gpg_tty_count="$(grep -Fxc "export GPG_TTY=\$(tty)" "$shell_rc")"
+  [ "$gpg_tty_count" -eq 1 ] || {
+    printf 'Forwarding test failed: shell rc lines are not idempotent\n' >&2
+    return 1
+  }
+
+  HOME="$test_home" PATH="$fake_bin:$PATH" SHELL=/bin/bash \
+    git-crypt-setup-ssh-forwarding "$shell_rc" Linux
+
+  [ -f "$ssh_config" ] || {
+    printf 'Forwarding test failed: ssh config not created\n' >&2
+    return 1
+  }
+
+  grep -Fqx '  IdentityAgent /tmp/test-agent-ssh.sock' "$ssh_config" || {
+    printf 'Forwarding test failed: IdentityAgent line missing\n' >&2
+    return 1
+  }
+
+  grep -Fqx '  RemoteForward ~/.gnupg/S.gpg-agent /tmp/test-agent-extra.sock' "$ssh_config" || {
+    printf 'Forwarding test failed: RemoteForward line missing\n' >&2
+    return 1
+  }
+
+  HOME="$test_home" PATH="$fake_bin:$PATH" SHELL=/bin/bash FAKE_CALL_LOG="$call_log" \
+    git-crypt-copy-remote-gpg-stubs "tester@example-host" "stub@example.com"
+
+  grep -Fq 'scp ' "$call_log" || {
+    printf 'Forwarding test failed: scp was not called\n' >&2
+    return 1
+  }
+
+  grep -Fq 'ssh tester@example-host gpg --batch --import' "$call_log" || {
+    printf 'Forwarding test failed: remote gpg import was not called\n' >&2
+    return 1
+  }
+}
+
 function git-crypt-test-sandbox {
   (
     set -euo pipefail
@@ -864,6 +1145,8 @@ function git-crypt-test-sandbox {
         exit 1
       fi
     ) || exit 1
+
+    _git-crypt-test-forwarding-features "$sandbox_root" || exit 1
 
     printf 'Sandbox E2E test passed\n'
     printf 'Sandbox path: %s\n' "$sandbox_root"

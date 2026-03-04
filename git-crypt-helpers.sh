@@ -298,6 +298,161 @@ function _git-crypt-require-cmd {
   fi
 }
 
+function _git-crypt-doctor-report {
+  local level="$1"
+  local message="$2"
+
+  case "$level" in
+    ok)
+      printf '[OK] %s\n' "$message"
+      ;;
+    warn)
+      printf '[WARN] %s\n' "$message"
+      ;;
+    fail)
+      printf '[FAIL] %s\n' "$message"
+      ;;
+    info)
+      printf '[INFO] %s\n' "$message"
+      ;;
+    *)
+      printf '[?] %s\n' "$message"
+      ;;
+  esac
+}
+
+function git-crypt-doctor {
+  local failures=0
+  local warnings=0
+  local in_repo=0
+  local gpg_secret_count=0
+  local recipient_count=0
+  local encrypted_count=0
+  local agent_ssh_socket
+  local agent_extra_socket
+  local cmd
+  local -a required_cmds
+  local -a recipient_files
+
+  required_cmds=(git git-crypt gpg awk mktemp base64)
+
+  printf 'Running git-crypt diagnostics...\n'
+
+  for cmd in "${required_cmds[@]}"; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      _git-crypt-doctor-report ok "Found command: $cmd"
+    else
+      _git-crypt-doctor-report fail "Missing command: $cmd"
+      failures=$((failures + 1))
+    fi
+  done
+
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    in_repo=1
+    _git-crypt-doctor-report ok "Inside a git repository"
+  else
+    _git-crypt-doctor-report warn "Not inside a git repository (repo checks skipped)"
+    warnings=$((warnings + 1))
+  fi
+
+  if [ "$in_repo" -eq 1 ]; then
+    if [ -d .git-crypt/keys/default/0 ]; then
+      shopt -s nullglob
+      recipient_files=(.git-crypt/keys/default/0/*.gpg)
+      shopt -u nullglob
+      recipient_count="${#recipient_files[@]}"
+
+      if [ "$recipient_count" -gt 0 ]; then
+        _git-crypt-doctor-report ok "Found $recipient_count git-crypt recipient key file(s)"
+      else
+        _git-crypt-doctor-report warn "No recipient key files found in .git-crypt/keys/default/0"
+        warnings=$((warnings + 1))
+      fi
+    else
+      _git-crypt-doctor-report warn "git-crypt recipient directory missing (.git-crypt/keys/default/0)"
+      warnings=$((warnings + 1))
+    fi
+
+    if [ -f .gitattributes ] && grep -Eq 'filter=git-crypt|diff=git-crypt' .gitattributes; then
+      _git-crypt-doctor-report ok "Detected git-crypt rules in .gitattributes"
+    else
+      _git-crypt-doctor-report warn "No git-crypt rules found in .gitattributes"
+      warnings=$((warnings + 1))
+    fi
+
+    if encrypted_count="$(git-crypt status -e 2>/dev/null | awk 'NF { count++ } END { print count + 0 }')"; then
+      _git-crypt-doctor-report info "git-crypt status reports $encrypted_count encrypted tracked file(s)"
+    else
+      _git-crypt-doctor-report warn "Failed to run git-crypt status -e"
+      warnings=$((warnings + 1))
+    fi
+  fi
+
+  if gpg_secret_count="$(gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '$1 == "sec" { count++ } END { print count + 0 }')"; then
+    if [ "$gpg_secret_count" -gt 0 ]; then
+      _git-crypt-doctor-report ok "Found $gpg_secret_count local GPG secret key(s)"
+    else
+      _git-crypt-doctor-report warn "No local GPG secret keys found"
+      warnings=$((warnings + 1))
+    fi
+  else
+    _git-crypt-doctor-report fail "Unable to list GPG secret keys"
+    failures=$((failures + 1))
+  fi
+
+  if command -v gpgconf >/dev/null 2>&1; then
+    agent_ssh_socket="$(gpgconf --list-dirs agent-ssh-socket 2>/dev/null)"
+    agent_extra_socket="$(gpgconf --list-dirs agent-extra-socket 2>/dev/null)"
+
+    if [ -n "$agent_ssh_socket" ]; then
+      _git-crypt-doctor-report info "gpg-agent ssh socket path: $agent_ssh_socket"
+    else
+      _git-crypt-doctor-report warn "Could not determine gpg-agent ssh socket path"
+      warnings=$((warnings + 1))
+    fi
+
+    if [ -n "$agent_extra_socket" ]; then
+      _git-crypt-doctor-report info "gpg-agent extra socket path: $agent_extra_socket"
+    else
+      _git-crypt-doctor-report warn "Could not determine gpg-agent extra socket path"
+      warnings=$((warnings + 1))
+    fi
+  else
+    _git-crypt-doctor-report warn "gpgconf not found; skipping gpg-agent socket checks"
+    warnings=$((warnings + 1))
+  fi
+
+  if [ -n "${GPG_TTY:-}" ]; then
+    _git-crypt-doctor-report ok "GPG_TTY is set"
+  else
+    _git-crypt-doctor-report warn "GPG_TTY is not set in current shell"
+    warnings=$((warnings + 1))
+  fi
+
+  if command -v gh >/dev/null 2>&1; then
+    if gh auth status >/dev/null 2>&1; then
+      _git-crypt-doctor-report ok "GitHub CLI authenticated"
+    else
+      _git-crypt-doctor-report warn "GitHub CLI installed but not authenticated"
+      warnings=$((warnings + 1))
+    fi
+  else
+    _git-crypt-doctor-report info "GitHub CLI not installed (only needed for GITCRYPT_KEY secret automation)"
+  fi
+
+  printf 'Diagnostics complete: %d failure(s), %d warning(s)\n' "$failures" "$warnings"
+
+  if [ "$failures" -gt 0 ]; then
+    return 1
+  fi
+
+  return 0
+}
+
+function git-crypt-diagnostics {
+  git-crypt-doctor "$@"
+}
+
 function _git-crypt-parse-encrypted-files {
   local line
   local trimmed

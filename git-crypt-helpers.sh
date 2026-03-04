@@ -164,6 +164,7 @@ function _git-crypt-parse-encrypted-files {
 }
 
 function git-crypt-rekey {
+  local skip_unlock=0
   local -a recipient_files
   local -a recipients
   local -a encrypted_files
@@ -174,6 +175,10 @@ function git-crypt-rekey {
   _git-crypt-require-cmd git || return 1
   _git-crypt-require-cmd git-crypt || return 1
   _git-crypt-require-cmd gpg || return 1
+
+  if [ "${1:-}" = "--no-unlock" ]; then
+    skip_unlock=1
+  fi
 
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     printf 'Run this function from inside a git repository\n' >&2
@@ -200,8 +205,10 @@ function git-crypt-rekey {
     recipients+=("${basename_value%.gpg}")
   done
 
-  printf 'Unlocking repository...\n'
-  git-crypt unlock || return 1
+  if [ "$skip_unlock" -eq 0 ]; then
+    printf 'Unlocking repository...\n'
+    git-crypt unlock || return 1
+  fi
 
   printf 'Generating a new git-crypt symmetric key...\n'
   rm -f .git/git-crypt/keys/default
@@ -530,11 +537,13 @@ function git-crypt-remove-gpg-user {
   local display_uid
   local recipient_id
   local is_self
+  local matched_user
+  local target_normalized
+  local candidate_normalized
 
   _git-crypt-require-cmd git || return 1
   _git-crypt-require-cmd git-crypt || return 1
   _git-crypt-require-cmd gpg || return 1
-  _git-crypt-require-cmd fzf || return 1
 
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     printf 'Run this function from inside a git repository\n' >&2
@@ -576,6 +585,8 @@ function git-crypt-remove-gpg-user {
   if [ "$#" -gt 0 ]; then
     target_user="$1"
   else
+    _git-crypt-require-cmd fzf || return 1
+
     if [ "${#key_rows[@]}" -eq 0 ]; then
       printf 'No removable recipients found (only your own key is present)\n' >&2
       return 1
@@ -592,8 +603,30 @@ function git-crypt-remove-gpg-user {
   target_file=".git-crypt/keys/default/0/${target_user}.gpg"
 
   if [ ! -f "$target_file" ]; then
-    printf 'Recipient not found: %s\n' "$target_user" >&2
-    return 1
+    matched_user=""
+    target_normalized="$(_git-crypt-normalize-token "$target_user")"
+
+    for target_file in "${recipient_files[@]}"; do
+      basename_value="${target_file##*/}"
+      recipient_id="${basename_value%.gpg}"
+      candidate_normalized="$(_git-crypt-normalize-token "$recipient_id")"
+
+      if [ "$candidate_normalized" = "$target_normalized" ] || [[ "$candidate_normalized" == *"$target_normalized" ]]; then
+        if [ -n "$matched_user" ]; then
+          printf 'Recipient identifier is ambiguous: %s\n' "$target_user" >&2
+          return 1
+        fi
+        matched_user="$recipient_id"
+      fi
+    done
+
+    if [ -z "$matched_user" ]; then
+      printf 'Recipient not found: %s\n' "$target_user" >&2
+      return 1
+    fi
+
+    target_user="$matched_user"
+    target_file=".git-crypt/keys/default/0/${target_user}.gpg"
   fi
 
   if gpg --list-secret-keys --with-colons --fingerprint "$target_user" 2>/dev/null | awk -F: '$1 == "sec" { found = 1 } END { exit found ? 0 : 1 }'; then
@@ -607,9 +640,187 @@ function git-crypt-remove-gpg-user {
     return 1
   fi
 
+  git-crypt unlock >/dev/null 2>&1 || return 1
+
   rm -f -- "$target_file" || return 1
 
   printf 'Removed recipient key for: %s\n' "$target_user"
   printf 'Rotating repository symmetric key to revoke prior access...\n'
-  git-crypt-rekey
+
+  git-crypt-rekey --no-unlock
+}
+
+function _git-crypt-first-fingerprint {
+  gpg --with-colons --fingerprint "$1" 2>/dev/null | awk -F: '$1 == "fpr" { print $10; exit }'
+}
+
+function _git-crypt-generate-test-key {
+  local gnupg_home
+  local real_name
+  local email
+  local uid
+  local gpg_output
+
+  gnupg_home="$1"
+  real_name="$2"
+  email="$3"
+  uid="${real_name} <${email}>"
+
+  if command -v gpgconf >/dev/null 2>&1; then
+    GNUPGHOME="$gnupg_home" gpgconf --launch gpg-agent >/dev/null 2>&1 || true
+  fi
+
+  for _ in 1 2 3; do
+    if gpg_output="$(GNUPGHOME="$gnupg_home" gpg --batch --pinentry-mode loopback --passphrase '' --quick-gen-key "$uid" default default 0 2>&1)"; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  printf 'Failed to generate test key for %s\n%s\n' "$uid" "$gpg_output" >&2
+
+  return 1
+}
+
+function git-crypt-test-sandbox {
+  (
+    set -euo pipefail
+
+    local sandbox_root
+    local repo_dir
+    local bob_clone
+    local alice_home
+    local bob_home
+    local alice_fpr
+    local bob_fpr
+    local share_output
+    local share_token
+    local verbal_code
+    local test_secret
+
+    _git-crypt-require-cmd git
+    _git-crypt-require-cmd git-crypt
+    _git-crypt-require-cmd gpg
+    _git-crypt-require-cmd awk
+    _git-crypt-require-cmd mktemp
+
+    sandbox_root="${1:-$(mktemp -d "${TMPDIR:-/tmp}/git-crypt-sandbox.XXXXXX")}" 
+    mkdir -p "$sandbox_root"
+
+    repo_dir="$sandbox_root/r1"
+    bob_clone="$sandbox_root/r2"
+    alice_home="$sandbox_root/a"
+    bob_home="$sandbox_root/b"
+    test_secret="sandbox-secret-v1"
+
+    mkdir -p "$alice_home" "$bob_home"
+    chmod 700 "$alice_home" "$bob_home"
+
+    printf 'Creating sandbox in %s\n' "$sandbox_root"
+
+    _git-crypt-generate-test-key "$alice_home" "Alice Example" "alice@example.com"
+    _git-crypt-generate-test-key "$bob_home" "Bob Example" "bob@example.com"
+
+    alice_fpr="$(GNUPGHOME="$alice_home" _git-crypt-first-fingerprint "alice@example.com")"
+    bob_fpr="$(GNUPGHOME="$bob_home" _git-crypt-first-fingerprint "bob@example.com")"
+
+    if [ -z "$alice_fpr" ] || [ -z "$bob_fpr" ]; then
+      printf 'Failed to generate sandbox GPG keys\n' >&2
+      exit 1
+    fi
+
+    git init "$repo_dir" >/dev/null || exit 1
+    (
+      cd "$repo_dir"
+      git config user.name "Sandbox Tester"
+      git config user.email "sandbox@example.com"
+      printf 'secret/** filter=git-crypt diff=git-crypt\n' > .gitattributes
+      mkdir -p secret
+      printf '%s\n' "$test_secret" > secret/data.txt
+
+      GNUPGHOME="$bob_home" gpg --armor --export "$bob_fpr" > "$sandbox_root/bob.pub.asc"
+      GNUPGHOME="$alice_home" gpg --import "$sandbox_root/bob.pub.asc" >/dev/null 2>&1
+      printf '%s:6:\n' "$bob_fpr" | GNUPGHOME="$alice_home" gpg --import-ownertrust >/dev/null 2>&1
+
+      GNUPGHOME="$alice_home" git-crypt-init || {
+        printf 'Failed to initialize git-crypt\n' >&2
+        exit 1
+      }
+
+      GNUPGHOME="$alice_home" git-crypt add-gpg-user "$alice_fpr" >/dev/null || {
+        printf 'Failed to add Alice as git-crypt recipient\n' >&2
+        exit 1
+      }
+
+      git add .gitattributes secret/data.txt .git-crypt || {
+        printf 'Failed to stage initial encrypted files\n' >&2
+        exit 1
+      }
+      git commit -m "Initialize sandbox git-crypt setup" >/dev/null || {
+        printf 'Failed to commit initial sandbox setup\n' >&2
+        exit 1
+      }
+
+      GNUPGHOME="$alice_home" git-crypt add-gpg-user "$bob_fpr" >/dev/null || {
+        printf 'Failed to add Bob as git-crypt recipient\n' >&2
+        exit 1
+      }
+    ) || exit 1
+
+    git clone "$repo_dir" "$bob_clone" >/dev/null 2>&1 || exit 1
+    (
+      cd "$bob_clone"
+      GNUPGHOME="$bob_home" git-crypt unlock >/dev/null || {
+        printf 'Bob failed to unlock the repository\n' >&2
+        exit 1
+      }
+      if [ "$(<secret/data.txt)" != "$test_secret" ]; then
+        printf 'Bob failed to read decrypted secret\n' >&2
+        exit 1
+      fi
+    ) || exit 1
+
+    share_output="$(GNUPGHOME="$bob_home" git-crypt-share-key)"
+    share_token="$(printf '%s\n' "$share_output" | awk '/^GPGSHARE1:/{print; exit}')"
+    verbal_code="$(printf '%s\n' "$share_output" | awk -F': ' '/^Verbal confirmation code:/{print $2; exit}')"
+
+    if [ -z "$share_token" ] || [ -z "$verbal_code" ]; then
+      printf 'Failed to produce share token and verbal code\n' >&2
+      exit 1
+    fi
+
+    (
+      cd "$repo_dir"
+      printf '%s\n' "$verbal_code" | GNUPGHOME="$alice_home" git-crypt-import-shared-key "$share_token" >/dev/null
+      if ! GNUPGHOME="$alice_home" gpg --list-keys "$bob_fpr" >/dev/null 2>&1; then
+        printf 'Shared key import test failed\n' >&2
+        exit 1
+      fi
+
+      if GNUPGHOME="$alice_home" git-crypt-remove-gpg-user "$alice_fpr" >/dev/null 2>&1; then
+        printf 'Self-removal guard failed\n' >&2
+        exit 1
+      fi
+
+      GNUPGHOME="$alice_home" git-crypt-remove-gpg-user "$bob_fpr" >/dev/null || {
+        printf 'Failed to remove Bob recipient\n' >&2
+        exit 1
+      }
+
+      git add -A
+      git commit -m "Revoke bob from sandbox" >/dev/null
+    ) || exit 1
+
+    git clone "$repo_dir" "$sandbox_root/r3" >/dev/null 2>&1 || exit 1
+    (
+      cd "$sandbox_root/r3"
+      if GNUPGHOME="$bob_home" git-crypt unlock >/dev/null 2>&1; then
+        printf 'Bob can still unlock after revocation\n' >&2
+        exit 1
+      fi
+    ) || exit 1
+
+    printf 'Sandbox E2E test passed\n'
+    printf 'Sandbox path: %s\n' "$sandbox_root"
+  )
 }

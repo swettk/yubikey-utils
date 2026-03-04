@@ -104,6 +104,11 @@ function git-crypt-set-gh-secret {
   local repo
   local status=0
   local xtrace_was_on=0
+  local update_actions=1
+
+  if [ "${1:-}" = "--no-actions" ]; then
+    update_actions=0
+  fi
 
   case $- in
     *x*)
@@ -125,7 +130,7 @@ function git-crypt-set-gh-secret {
     fi
   fi
 
-  if [ "$status" -eq 0 ]; then
+  if [ "$status" -eq 0 ] && [ "$update_actions" -eq 1 ]; then
     git-crypt-init-gh-actions || status=1
   fi
 
@@ -165,9 +170,13 @@ function _git-crypt-parse-encrypted-files {
 
 function git-crypt-rekey {
   local skip_unlock=0
+  local gh_secret_mode="prompt"
+  local gh_repo
+  local update_gh_secret_reply
   local -a recipient_files
   local -a recipients
   local -a encrypted_files
+  local arg
   local file
   local basename_value
   local recipient
@@ -176,9 +185,24 @@ function git-crypt-rekey {
   _git-crypt-require-cmd git-crypt || return 1
   _git-crypt-require-cmd gpg || return 1
 
-  if [ "${1:-}" = "--no-unlock" ]; then
-    skip_unlock=1
-  fi
+  for arg in "$@"; do
+    case "$arg" in
+      --no-unlock)
+        skip_unlock=1
+        ;;
+      --update-gh-secret)
+        gh_secret_mode="yes"
+        ;;
+      --no-update-gh-secret)
+        gh_secret_mode="no"
+        ;;
+      *)
+        printf 'Unknown option: %s\n' "$arg" >&2
+        printf 'Usage: git-crypt-rekey [--no-unlock] [--update-gh-secret|--no-update-gh-secret]\n' >&2
+        return 1
+        ;;
+    esac
+  done
 
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     printf 'Run this function from inside a git repository\n' >&2
@@ -235,6 +259,27 @@ function git-crypt-rekey {
   printf 'Re-encrypting %d tracked file(s)...\n' "${#encrypted_files[@]}"
   git rm --cached -- "${encrypted_files[@]}" || return 1
   git add -- "${encrypted_files[@]}" || return 1
+
+  if [ "$gh_secret_mode" != "no" ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    gh_repo="$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)"
+
+    if [ -n "$gh_repo" ]; then
+      if [ "$gh_secret_mode" = "yes" ]; then
+        printf 'Updating GITCRYPT_KEY in GitHub for %s...\n' "$gh_repo"
+        git-crypt-set-gh-secret --no-actions || return 1
+      elif [ -t 0 ]; then
+        printf 'Update GITCRYPT_KEY in GitHub for %s now? [y/N]: ' "$gh_repo"
+        IFS= read -r update_gh_secret_reply
+
+        case "$update_gh_secret_reply" in
+          [Yy]|[Yy][Ee][Ss])
+            printf 'Updating GITCRYPT_KEY in GitHub...\n'
+            git-crypt-set-gh-secret --no-actions || return 1
+            ;;
+        esac
+      fi
+    fi
+  fi
 
   printf 'Done. Review changes with git status and git diff --cached.\n'
 }

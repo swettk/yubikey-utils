@@ -106,6 +106,65 @@ function export_pubkeys {
   gpg --armor --export > $PUBKEY_PATH/gpg.pubkey
 }
 
+function key_to_gh {
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "GitHub CLI (gh) is not installed. Install it first: https://cli.github.com/"
+    exit 1
+  fi
+
+  if ! gh auth status -h github.com >/dev/null 2>&1; then
+    echo "GitHub CLI is not authenticated for github.com. Run: gh auth login"
+    exit 1
+  fi
+
+  local tmpdir
+  local gpg_pub
+  local ssh_pub
+  local host_short
+  local today
+  local gpg_title
+  local ssh_title
+
+  tmpdir="$(mktemp -d)"
+  gpg_pub="$tmpdir/gpg.pub"
+  ssh_pub="$tmpdir/ssh.pub"
+
+  gpg --armor --export "$EMAIL" > "$gpg_pub"
+  if [[ ! -s "$gpg_pub" ]]; then
+    rm -rf "$tmpdir"
+    echo "Unable to export a GPG public key for $EMAIL."
+    exit 1
+  fi
+
+  if ! ssh-add -L > "$ssh_pub" 2>/dev/null; then
+    rm -rf "$tmpdir"
+    echo "Unable to read SSH public keys from ssh-agent."
+    echo "Run ./setup_yubikey setup-ssh-forwarding and ensure your YubiKey auth key is loaded."
+    exit 1
+  fi
+
+  if grep -q "The agent has no identities" "$ssh_pub" || [[ ! -s "$ssh_pub" ]]; then
+    rm -rf "$tmpdir"
+    echo "No SSH public keys found in ssh-agent."
+    echo "Run ./setup_yubikey setup-ssh-forwarding and ensure your YubiKey auth key is loaded."
+    exit 1
+  fi
+
+  host_short="$(hostname -s 2>/dev/null || hostname)"
+  today="$(date +%Y-%m-%d)"
+  gpg_title="${REALNAME} yubikey ${today}"
+  ssh_title="${REALNAME}@${host_short} yubikey ${today}"
+
+  echo "Publishing GPG key to GitHub..."
+  gh gpg-key add "$gpg_pub" --title "$gpg_title"
+
+  echo "Publishing SSH key to GitHub..."
+  gh ssh-key add "$ssh_pub" --title "$ssh_title"
+
+  rm -rf "$tmpdir"
+  echo "Published GPG and SSH public keys to GitHub."
+}
+
 function create_luks_container {
   if [[ "$OS" == "Darwin" ]]; then
     echo "LUKS containers are not supported on macOS (requires Linux dm-crypt)."
@@ -434,6 +493,9 @@ case "${1:-}" in
     echo "Exporting your GPG public Key to $PUBKEY_PATH"
     export_pubkeys
     ;;
+  'key-to-gh')
+    key_to_gh
+    ;;
   'setup-git-commit-signing')
     echo "Modifying global git config to sign commits with your GPG key"
     setup_git_commit_signing
@@ -470,7 +532,7 @@ case "${1:-}" in
     test_gpg_signing
     ;;
   *)
-    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|create-luks-container|setup-git-ez|setup-git-commit-signing|setup-gpg-agent|setup-ssh-forwarding|copy-remote-gpg-stubs <user@host>|test-gpg-signing|export-gpg-pubkey|test-git-config>"
+    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|create-luks-container|setup-git-ez|setup-git-commit-signing|setup-gpg-agent|setup-ssh-forwarding|copy-remote-gpg-stubs <user@host>|test-gpg-signing|export-gpg-pubkey|key-to-gh|test-git-config>"
     exit 1
     ;;
 esac

@@ -232,13 +232,20 @@ function enable_hmac {
     SUDO_PREFIX=""
   fi
 
-  if [[ -f "${HOME}/hmac_key" ]]; then
+  # HMAC challenge-response uses the OTP interface; ensure it is enabled.
+  if [[ -n "$SUDO_PREFIX" ]]; then
+    $SUDO_PREFIX ykman config usb --enable OTP -f >/dev/null 2>&1 || true
+  else
+    ykman config usb --enable OTP -f >/dev/null 2>&1 || true
+  fi
+  sleep 5
+  if [[ -f "$(pwd)/hmac_key" ]]; then
     echo "Found existing hmac key, loading in slot 2"
     key="$(cat "${HOME}/hmac_key")"
     $SUDO_PREFIX ykpersonalize -a"${key}" -y -2 -ochal-resp -ochal-hmac -ohmac-lt64 -oserial-api-visible 1>/dev/null
   else
     echo "Generating new hmac key, loading in slot 2"
-    $SUDO_PREFIX ykpersonalize -y -2 -ochal-resp -ochal-hmac -ohmac-lt64 -oserial-api-visible 2>&1 | grep 'key: ' | sed 's/key: //g' > "${HOME}/hmac_key"
+    $SUDO_PREFIX ykpersonalize -y -2 -ochal-resp -ochal-hmac -ohmac-lt64 -oserial-api-visible 2>&1 | grep 'key: ' | sed 's/key: //g' > "$(pwd)/hmac_key"
   fi
 }
 
@@ -269,7 +276,7 @@ function reset_yubikey {
   ykman hsmauth reset -f
   #read -r -p "Unplug your YubiKey, plug it back in (within 5 seconds), then press Enter to continue with FIDO reset... "
   #ykman fido reset -f
-  ykman config usb --disable OTP -f
+  ykman config usb --enable OTP -f
 }
 
 function generate_master {

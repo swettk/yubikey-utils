@@ -165,7 +165,7 @@ function gpg-copy-remote-gpg-stubs {
 
   if gpg --list-secret-keys --keyid-format LONG "$key_identity" 2>/dev/null | grep -q '^sec\s'; then
     printf 'Refusing to copy because local keyring appears to include full secret keys.\n' >&2
-    printf 'Use a stub-only keyring (for example after ./setup_yubikey keys-to-user).\n' >&2
+    printf 'Use a stub-only keyring (for example after ./setup-yubikey keys-to-user).\n' >&2
     return 1
   fi
 

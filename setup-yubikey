@@ -4,24 +4,35 @@
 source "$(dirname "$0")/setup_variables"
 source "$(dirname "$0")/gpg-helpers.sh"
 
-## Check variables are not empty
-if [ -z "$PASSPHRASE" ] || [ -z "$REALNAME" ] || [ -z "$EMAIL" ] || [ -z "$KEYPIN" ] || [ -z "$ADMINPIN" ] || [ -z "$RESETCODE" ]
-then
-  echo "A required variable is not. Review and edit 'setup_variables' and try again."
-  exit 1
-fi
+REQUESTED_COMMAND="${1:-}"
 
-if [ "${#KEYPIN}" -lt 6 ]
-then
-  echo "KEYPIN must be at least 6 characters. Review and edit 'setup_variables' and try again."
-  exit 1
-fi
+function validate_setup_variables {
+  if [ -z "${PASSPHRASE:-}" ] || [ -z "${REALNAME:-}" ] || [ -z "${EMAIL:-}" ] || [ -z "${KEYPIN:-}" ] || [ -z "${ADMINPIN:-}" ] || [ -z "${RESETCODE:-}" ]
+  then
+    echo "A required variable is not set. Run './setup-yubikey setup-vars' or edit 'setup_variables' and try again."
+    exit 1
+  fi
 
-if [ "${#ADMINPIN}" -lt 8 ] || [ "${#RESETCODE}" -lt 8 ]
-then
-  echo "ADMINPIN and RESETCODE must each be at least 8 characters. Review and edit 'setup_variables' and try again."
-  exit 1
-fi
+  if [ "${#KEYPIN}" -lt 6 ]
+  then
+    echo "KEYPIN must be at least 6 characters. Run './setup-yubikey setup-vars' or edit 'setup_variables' and try again."
+    exit 1
+  fi
+
+  if [ "${#ADMINPIN}" -lt 8 ] || [ "${#RESETCODE}" -lt 8 ]
+  then
+    echo "ADMINPIN and RESETCODE must each be at least 8 characters. Run './setup-yubikey setup-vars' or edit 'setup_variables' and try again."
+    exit 1
+  fi
+}
+
+case "$REQUESTED_COMMAND" in
+  ''|'help'|'-h'|'--help'|'setup-vars')
+    ;;
+  *)
+    validate_setup_variables
+    ;;
+esac
 
 if [ ! -d ~/.gnupg/ ]
 then
@@ -81,6 +92,182 @@ function setup_gpg_agent {
 
 function setup_gpg_helpers {
   gpg-install-helpers "$(dirname "$0")/gpg-helpers.sh" "$SHELL_RC"
+}
+
+function oneshot {
+  setup_vars
+  init_ez
+  setup_key_ez
+  setup_gpg_agent
+  setup_gpg_helpers
+}
+
+function _escape_single_quotes {
+  local value="$1"
+  printf "%s" "${value//\'/\'\\\'\'}"
+}
+
+function _prompt_nonempty_value {
+  local prompt="$1"
+  local value=""
+
+  while true; do
+    read -r -p "$prompt" value
+    if [ -n "$value" ]; then
+      printf '%s' "$value"
+      return 0
+    fi
+    echo "Value cannot be empty."
+  done
+}
+
+function _prompt_secret_value {
+  local prompt="$1"
+  local min_len="$2"
+  local value=""
+  local confirm=""
+
+  while true; do
+    read -r -s -p "$prompt" value
+    echo ""
+    read -r -s -p "Confirm: " confirm
+    echo ""
+
+    if [ -z "$value" ]; then
+      echo "Value cannot be empty."
+      continue
+    fi
+
+    if [ "$value" != "$confirm" ]; then
+      echo "Values do not match. Try again."
+      continue
+    fi
+
+    if [ "$min_len" -gt 0 ] && [ "${#value}" -lt "$min_len" ]; then
+      echo "Value must be at least $min_len characters."
+      continue
+    fi
+
+    printf '%s' "$value"
+    return 0
+  done
+}
+
+function setup_vars {
+  local vars_file
+  local overwrite_reply
+  local has_nondefault_values=0
+  local input_realname
+  local input_email
+  local input_passphrase
+  local input_keypin
+  local input_adminpin
+  local input_resetcode
+  local escaped_realname
+  local escaped_email
+  local escaped_passphrase
+  local escaped_keypin
+  local escaped_adminpin
+  local escaped_resetcode
+
+  vars_file="$(dirname "$0")/setup_variables"
+
+  if [ -n "${PASSPHRASE:-}" ] && [ "$PASSPHRASE" != "asdfASDF1234" ]; then
+    has_nondefault_values=1
+  fi
+  if [ -n "${REALNAME:-}" ] && [ "$REALNAME" != "Valued Employee" ]; then
+    has_nondefault_values=1
+  fi
+  if [ -n "${EMAIL:-}" ] && [ "$EMAIL" != "valued@a.com" ]; then
+    has_nondefault_values=1
+  fi
+  if [ -n "${KEYPIN:-}" ] && [ "$KEYPIN" != "654321" ]; then
+    has_nondefault_values=1
+  fi
+  if [ -n "${ADMINPIN:-}" ] && [ "$ADMINPIN" != "11122211" ]; then
+    has_nondefault_values=1
+  fi
+  if [ -n "${RESETCODE:-}" ] && [ "$RESETCODE" != "87654321" ]; then
+    has_nondefault_values=1
+  fi
+
+  if [ "$has_nondefault_values" -eq 1 ]; then
+    echo "Existing non-default values were detected in setup_variables."
+    read -r -p "Continue and overwrite them? [y/N]: " overwrite_reply
+    case "$overwrite_reply" in
+      [Yy]|[Yy][Ee][Ss])
+        ;;
+      *)
+        echo "setup-vars cancelled."
+        return 0
+        ;;
+    esac
+  fi
+
+  input_realname="$(_prompt_nonempty_value 'Enter REALNAME: ')"
+
+  while true; do
+    input_email="$(_prompt_nonempty_value 'Enter EMAIL: ')"
+    if [[ "$input_email" == *"@"*"."* ]]; then
+      break
+    fi
+    echo "EMAIL must look like user@example.com"
+  done
+
+  input_passphrase="$(_prompt_secret_value 'Enter PASSPHRASE: ' 1)"
+  input_keypin="$(_prompt_secret_value 'Enter KEYPIN (min 6 chars): ' 6)"
+  input_adminpin="$(_prompt_secret_value 'Enter ADMINPIN (min 8 chars): ' 8)"
+  input_resetcode="$(_prompt_secret_value 'Enter RESETCODE (min 8 chars): ' 8)"
+
+  escaped_realname="$(_escape_single_quotes "$input_realname")"
+  escaped_email="$(_escape_single_quotes "$input_email")"
+  escaped_passphrase="$(_escape_single_quotes "$input_passphrase")"
+  escaped_keypin="$(_escape_single_quotes "$input_keypin")"
+  escaped_adminpin="$(_escape_single_quotes "$input_adminpin")"
+  escaped_resetcode="$(_escape_single_quotes "$input_resetcode")"
+
+  cat <<EOF > "$vars_file"
+### Edit these variables to your liking ###
+
+# Staff identity
+PASSPHRASE='$escaped_passphrase'
+REALNAME='$escaped_realname'
+EMAIL='$escaped_email'
+
+# Yubikey Parameters
+KEYPIN='$escaped_keypin' # Must be at least 6 chars; used often to unlock the yubikey
+ADMINPIN='$escaped_adminpin' # Must be at least 8 chars
+RESETCODE='$escaped_resetcode' # Must be at least 8 chars
+
+# LUKS Parameters -- Typically, leave these alone
+LUKS_SIZE_IN_GB='${LUKS_SIZE_IN_GB:-500}'
+LUKS_PATH='${LUKS_PATH:-${HOME}/yubikey_luks}'
+EOF
+
+  chmod 600 "$vars_file"
+  source "$vars_file"
+  echo "setup_variables updated successfully."
+}
+
+function help {
+  cat <<EOF
+Usage: $0 <command>
+
+Commands:
+  init               Install required dependencies
+  init-ez            Run init + generate-master quick flow
+  reset-yubikey      Reset YubiKey applications to defaults
+  generate-master    Generate OpenPGP master key material
+  setup-key-ez       Run reset-yubikey + keys-to-card + enable-hmac
+  keys-to-card       Move generated keys to YubiKey slots
+  keys-to-user       Copy key stubs to ~/.gnupg
+  enable-hmac        Configure HMAC challenge-response on YubiKey
+  setup-gpg-agent    Configure and start gpg-agent with SSH support
+  setup-gpg-helpers  Install helper functions into your shell profile
+  oneshot            Run setup-vars, init-ez, setup-key-ez, setup-gpg-agent, setup-gpg-helpers
+  setup-vars         Interactively update setup_variables
+  help               Show this command help
+EOF
 }
 
 function cleanup {
@@ -390,7 +577,7 @@ case "${1:-}" in
   'keys-to-card')
     echo "Copy Your Keys to your Yubikey"
     keys_to_card
-    echo 'Complete! Run ./setup_yubikey keys-to-user to move the gnupg_home_stubs to ~/.gnupg/'
+    echo 'Complete! Run ./setup-yubikey keys-to-user to move the gnupg_home_stubs to ~/.gnupg/'
     cleanup
     ;;
   'keys-to-user')
@@ -416,8 +603,18 @@ case "${1:-}" in
     echo "Reseting YubiKey and copying user keys there"
     setup_key_ez
     ;;
+  'oneshot')
+    echo "Running one-shot setup flow"
+    oneshot
+    ;;
+  'setup-vars')
+    setup_vars
+    ;;
+  'help'|'-h'|'--help')
+    help
+    ;;
   *)
-    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|setup-gpg-agent|setup-gpg-helpers>"
+    help
     exit 1
     ;;
 esac

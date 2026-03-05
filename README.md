@@ -2,7 +2,7 @@
 
 ## Important Note
 
-> **DO NOT** run `setup_yubikey` with `sudo`.
+> **DO NOT** run `setup-yubikey` with `sudo`.
 > The script prompts for elevated access only when needed.
 
 ## Table of Contents
@@ -30,7 +30,7 @@
 Run any command with:
 
 ```bash
-./setup_yubikey <command>
+./setup-yubikey <command>
 ```
 
 Available commands:
@@ -46,9 +46,11 @@ keys-to-user
 enable-hmac
 setup-gpg-agent
 setup-gpg-helpers
+oneshot
+setup-vars
 ```
 
-After running `./setup_yubikey setup-gpg-helpers`, helper shell functions are available including `copy-remote-gpg-stubs`, `export-gpg-pubkey`, `setup-ssh-forwarding`, `setup-git-commit-signing`, `setup-git-ez`, `test-gpg-signing`, `test-git-config`, `key-to-gh`, and `create-luks-container`.
+After running `./setup-yubikey setup-gpg-helpers`, helper shell functions are available including `copy-remote-gpg-stubs`, `export-gpg-pubkey`, `setup-ssh-forwarding`, `setup-git-commit-signing`, `setup-git-ez`, `test-gpg-signing`, `test-git-config`, `key-to-gh`, and `create-luks-container`.
 
 ### Prepare for Setup
 
@@ -80,19 +82,19 @@ After running `./setup_yubikey setup-gpg-helpers`, helper shell functions are av
 
 ### Initialize the Script
 
-You must run commands from the same directory as `setup_yubikey`.
+You must run commands from the same directory as `setup-yubikey`.
 
 Run the quick initialization flow:
 
 ```bash
-./setup_yubikey init-ez
+./setup-yubikey init-ez
 ```
 
 Or run the steps manually:
 
 ```bash
-./setup_yubikey init
-./setup_yubikey generate-master
+./setup-yubikey init
+./setup-yubikey generate-master
 ```
 
 If initialization does not complete cleanly, rerun the command and confirm all prompts finished.
@@ -102,15 +104,15 @@ If initialization does not complete cleanly, rerun the command and confirm all p
 Insert your YubiKey (if not already inserted), then run:
 
 ```bash
-./setup_yubikey setup-key-ez
+./setup-yubikey setup-key-ez
 ```
 
 Or run the steps manually:
 
 ```bash
-./setup_yubikey reset-yubikey
-./setup_yubikey keys-to-card
-./setup_yubikey enable-hmac
+./setup-yubikey reset-yubikey
+./setup-yubikey keys-to-card
+./setup-yubikey enable-hmac
 ```
 
 ## Put Keys on Your Computer
@@ -118,8 +120,8 @@ Or run the steps manually:
 Run:
 
 ```bash
-./setup_yubikey keys-to-user
-./setup_yubikey setup-gpg-agent
+./setup-yubikey keys-to-user
+./setup-yubikey setup-gpg-agent
 source ~/.bashrc
 ```
 
@@ -207,7 +209,7 @@ ssh -A <host>
 Run:
 
 ```bash
-./setup_yubikey init
+./setup-yubikey init
 create-luks-container
 ```
 

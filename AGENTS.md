@@ -7,15 +7,15 @@ Prefer minimal, explicit, backward-compatible edits.
 
 ## Agent Quickstart (30 seconds)
 1. Confirm you are in repo root: `pwd` should end in `yubikey-work`.
-2. Read `setup_yubikey` and the exact function(s) you will touch before editing.
+2. Read `setup-yubikey` and the exact function(s) you will touch before editing.
 3. Keep diffs small; preserve CLI names and behavior unless change is requested.
 4. Never commit secrets or populate `setup_variables` in tracked changes.
-5. Validate touched scripts with `shellcheck setup_yubikey openvault.bash gpg-helpers.sh`.
+5. Validate touched scripts with `shellcheck setup-yubikey openvault.bash gpg-helpers.sh`.
 6. Run one quick check when possible: `source ./gpg-helpers.sh && test-git-config`.
 7. If hardware-dependent checks cannot run, explicitly note what was not verified.
 
 ## Repository Layout
-`setup_yubikey` - main CLI entrypoint and workflow orchestrator.
+`setup-yubikey` - main CLI entrypoint and workflow orchestrator.
 `setup_variables` - user-editable secrets/config (must stay empty in git).
 `openvault.bash` - sourceable LUKS lock/unlock helpers.
 `gpg-helpers.sh` - reusable git-crypt helper functions.
@@ -38,21 +38,21 @@ There is no build step and no package manager for this repo.
 Run from repository root:
 
 ```bash
-./setup_yubikey <command>
+./setup-yubikey <command>
 ```
 
 Current commands:
 
 ```text
 init, init-ez, reset-yubikey, generate-master, setup-key-ez, keys-to-card,
-keys-to-user, enable-hmac, setup-gpg-agent, setup-gpg-helpers
+keys-to-user, enable-hmac, setup-gpg-agent, setup-gpg-helpers, oneshot
 ```
 
 ## Lint
 No lint wrapper is configured. Use shellcheck directly:
 
 ```bash
-shellcheck setup_yubikey openvault.bash gpg-helpers.sh
+shellcheck setup-yubikey openvault.bash gpg-helpers.sh
 ```
 
 ## Test
@@ -86,7 +86,7 @@ gpg-test-sandbox
 Recommended pre-PR verification:
 
 ```bash
-shellcheck setup_yubikey openvault.bash gpg-helpers.sh
+shellcheck setup-yubikey openvault.bash gpg-helpers.sh
 source ./gpg-helpers.sh && test-git-config
 ```
 
@@ -120,7 +120,7 @@ Run `test-gpg-signing` only where GPG key material is configured.
 - Use here-docs for generated config/script content.
 
 ## Naming
-- `setup_yubikey` internals use `snake_case` functions.
+- `setup-yubikey` internals use `snake_case` functions.
 - User-facing CLI subcommands use `kebab-case` in dispatch.
 - `gpg-helpers.sh` public functions intentionally use `gpg-*` names.
 - Internal helper functions in that file use `_gpg-*` prefix.
@@ -152,7 +152,7 @@ Run `test-gpg-signing` only where GPG key material is configured.
 
 ## Change Management
 - Keep CLI behavior backward compatible unless explicitly changing UX.
-- If command names/dispatch change, update usage text in `setup_yubikey`.
+- If command names/dispatch change, update usage text in `setup-yubikey`.
 - If user-facing workflow changes, update `README.md`.
 - For gpg/scdaemon interactions, preserve cleanup behavior.
 

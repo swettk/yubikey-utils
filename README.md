@@ -45,10 +45,10 @@ keys-to-card
 keys-to-user
 enable-hmac
 setup-gpg-agent
-setup-git-crypt-helpers
+setup-gpg-helpers
 ```
 
-After running `./setup_yubikey setup-git-crypt-helpers`, helper shell functions are available including `copy-remote-gpg-stubs`, `export-gpg-pubkey`, `setup-ssh-forwarding`, `setup-git-commit-signing`, `setup-git-ez`, `test-gpg-signing`, `test-git-config`, `key-to-gh`, and `create-luks-container`.
+After running `./setup_yubikey setup-gpg-helpers`, helper shell functions are available including `copy-remote-gpg-stubs`, `export-gpg-pubkey`, `setup-ssh-forwarding`, `setup-git-commit-signing`, `setup-git-ez`, `test-gpg-signing`, `test-git-config`, `key-to-gh`, and `create-luks-container`.
 
 ### Prepare for Setup
 
@@ -197,7 +197,7 @@ ssh -A <host>
 ```
 
 - `setup-ssh-forwarding` updates your SSH config for agent and GPG socket forwarding.
-- `copy-remote-gpg-stubs` imports your public key and subkey stubs on the remote host (from `git-crypt-helpers.sh`, after running `setup-git-crypt-helpers`).
+- `copy-remote-gpg-stubs` imports your public key and subkey stubs on the remote host (from `gpg-helpers.sh`, after running `setup-gpg-helpers`).
 - `ssh -A` forwards your local YubiKey-backed SSH credentials to the remote session.
 
 ## YubiKey Setup Is Complete

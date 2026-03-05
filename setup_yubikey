@@ -2,7 +2,7 @@
 
 # Pull user defined variables
 source "$(dirname "$0")/setup_variables"
-source "$(dirname "$0")/git-crypt-helpers.sh"
+source "$(dirname "$0")/gpg-helpers.sh"
 
 ## Check variables are not empty
 if [ -z "$PASSPHRASE" ] || [ -z "$REALNAME" ] || [ -z "$EMAIL" ] || [ -z "$KEYPIN" ] || [ -z "$ADMINPIN" ] || [ -z "$RESETCODE" ]
@@ -76,11 +76,11 @@ function setup_key_ez {
 }
 
 function setup_gpg_agent {
-  git-crypt-setup-gpg-agent "$SHELL_RC" "$OS"
+  gpg-setup-gpg-agent "$SHELL_RC" "$OS"
 }
 
-function setup_git_crypt_helpers {
-  git-crypt-install-helpers "$(dirname "$0")/git-crypt-helpers.sh" "$SHELL_RC"
+function setup_gpg_helpers {
+  gpg-install-helpers "$(dirname "$0")/gpg-helpers.sh" "$SHELL_RC"
 }
 
 function cleanup {
@@ -405,8 +405,8 @@ case "${1:-}" in
   'setup-gpg-agent')
     setup_gpg_agent
     ;;
-  'setup-git-crypt-helpers')
-    setup_git_crypt_helpers
+  'setup-gpg-helpers')
+    setup_gpg_helpers
     ;;
   'init-ez')
     echo "Initialzing and generating user keys"
@@ -417,7 +417,7 @@ case "${1:-}" in
     setup_key_ez
     ;;
   *)
-    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|setup-gpg-agent|setup-git-crypt-helpers>"
+    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|setup-gpg-agent|setup-gpg-helpers>"
     exit 1
     ;;
 esac

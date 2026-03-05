@@ -10,15 +10,15 @@ Prefer minimal, explicit, backward-compatible edits.
 2. Read `setup_yubikey` and the exact function(s) you will touch before editing.
 3. Keep diffs small; preserve CLI names and behavior unless change is requested.
 4. Never commit secrets or populate `setup_variables` in tracked changes.
-5. Validate touched scripts with `shellcheck setup_yubikey openvault.bash git-crypt-helpers.sh`.
-6. Run one quick check when possible: `source ./git-crypt-helpers.sh && test-git-config`.
+5. Validate touched scripts with `shellcheck setup_yubikey openvault.bash gpg-helpers.sh`.
+6. Run one quick check when possible: `source ./gpg-helpers.sh && test-git-config`.
 7. If hardware-dependent checks cannot run, explicitly note what was not verified.
 
 ## Repository Layout
 `setup_yubikey` - main CLI entrypoint and workflow orchestrator.
 `setup_variables` - user-editable secrets/config (must stay empty in git).
 `openvault.bash` - sourceable LUKS lock/unlock helpers.
-`git-crypt-helpers.sh` - reusable git-crypt helper functions.
+`gpg-helpers.sh` - reusable git-crypt helper functions.
 `README.md` - user/operator documentation.
 
 ## Cursor / Copilot Rule Files
@@ -45,14 +45,14 @@ Current commands:
 
 ```text
 init, init-ez, reset-yubikey, generate-master, setup-key-ez, keys-to-card,
-keys-to-user, enable-hmac, setup-gpg-agent, setup-git-crypt-helpers
+keys-to-user, enable-hmac, setup-gpg-agent, setup-gpg-helpers
 ```
 
 ## Lint
 No lint wrapper is configured. Use shellcheck directly:
 
 ```bash
-shellcheck setup_yubikey openvault.bash git-crypt-helpers.sh
+shellcheck setup_yubikey openvault.bash gpg-helpers.sh
 ```
 
 ## Test
@@ -62,7 +62,7 @@ Testing is command-based and partly environment/hardware dependent.
 Quick validations:
 
 ```bash
-source ./git-crypt-helpers.sh
+source ./gpg-helpers.sh
 test-git-config
 # or
 test-gpg-signing
@@ -71,23 +71,23 @@ test-gpg-signing
 Single-test equivalent (run one check only):
 
 ```bash
-source ./git-crypt-helpers.sh && test-git-config
+source ./gpg-helpers.sh && test-git-config
 # or
-source ./git-crypt-helpers.sh && test-gpg-signing
+source ./gpg-helpers.sh && test-gpg-signing
 ```
 
-`git-crypt-helpers.sh` includes an end-to-end sandbox function:
+`gpg-helpers.sh` includes an end-to-end sandbox function:
 
 ```bash
-source ./git-crypt-helpers.sh
-git-crypt-test-sandbox
+source ./gpg-helpers.sh
+gpg-test-sandbox
 ```
 
 Recommended pre-PR verification:
 
 ```bash
-shellcheck setup_yubikey openvault.bash git-crypt-helpers.sh
-source ./git-crypt-helpers.sh && test-git-config
+shellcheck setup_yubikey openvault.bash gpg-helpers.sh
+source ./gpg-helpers.sh && test-git-config
 ```
 
 Run `test-gpg-signing` only where GPG key material is configured.
@@ -122,8 +122,8 @@ Run `test-gpg-signing` only where GPG key material is configured.
 ## Naming
 - `setup_yubikey` internals use `snake_case` functions.
 - User-facing CLI subcommands use `kebab-case` in dispatch.
-- `git-crypt-helpers.sh` public functions intentionally use `git-crypt-*` names.
-- Internal helper functions in that file use `_git-crypt-*` prefix.
+- `gpg-helpers.sh` public functions intentionally use `gpg-*` names.
+- Internal helper functions in that file use `_gpg-*` prefix.
 - Use uppercase for exported/config constants; lowercase for local temporaries.
 
 ## Types and Data Handling (Bash)

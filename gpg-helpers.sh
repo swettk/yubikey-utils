@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 
-function _git-crypt-ensure-line-in-file {
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  printf 'This file is meant to be sourced from your shell, would you like me to install? [y/N]: '
+  read -r __gpg_helpers_install_reply
+
+  case "$__gpg_helpers_install_reply" in
+    [Yy]|[Yy][Ee][Ss])
+      __GPG_HELPERS_AUTO_INSTALL=1
+      ;;
+    *)
+      exit 0
+      ;;
+  esac
+fi
+
+function _gpg-ensure-line-in-file {
   local line="$1"
   local file="$2"
 
@@ -10,14 +24,14 @@ function _git-crypt-ensure-line-in-file {
   fi
 }
 
-function git-crypt-install-helpers {
+function gpg-install-helpers {
   local source_file="${1:-}"
   local shell_rc="${2:-}"
-  local target_file="$HOME/.git-crypt-helpers.sh"
-  local source_line="[ -f \"\$HOME/.git-crypt-helpers.sh\" ] && source \"\$HOME/.git-crypt-helpers.sh\""
+  local target_file="$HOME/.gpg-helpers.sh"
+  local source_line="[ -f \"\$HOME/.gpg-helpers.sh\" ] && source \"\$HOME/.gpg-helpers.sh\""
 
   if [ -z "$source_file" ]; then
-    printf 'Usage: git-crypt-install-helpers <source-file> [shell-rc]\n' >&2
+    printf 'Usage: gpg-install-helpers <source-file> [shell-rc]\n' >&2
     return 1
   fi
 
@@ -37,13 +51,18 @@ function git-crypt-install-helpers {
   cp "$source_file" "$target_file"
   chmod 600 "$target_file"
 
-  _git-crypt-ensure-line-in-file "$source_line" "$shell_rc"
+  _gpg-ensure-line-in-file "$source_line" "$shell_rc"
 
   echo "Installed git-crypt helpers at $target_file"
   echo "Added helper source line to $shell_rc"
 }
 
-function git-crypt-setup-gpg-agent {
+if [ "${__GPG_HELPERS_AUTO_INSTALL:-0}" -eq 1 ]; then
+  gpg-install-helpers "${BASH_SOURCE[0]}" || exit 1
+  exit 0
+fi
+
+function gpg-setup-gpg-agent {
   local shell_rc="${1:-}"
   local os_name="${2:-$(uname -s)}"
   local gnupg_dir="$HOME/.gnupg"
@@ -69,16 +88,16 @@ function git-crypt-setup-gpg-agent {
 
   touch "$gpg_agent_conf"
   chmod 600 "$gpg_agent_conf"
-  _git-crypt-ensure-line-in-file "enable-ssh-support" "$gpg_agent_conf"
-  _git-crypt-ensure-line-in-file "default-cache-ttl 600" "$gpg_agent_conf"
-  _git-crypt-ensure-line-in-file "max-cache-ttl 7200" "$gpg_agent_conf"
-  _git-crypt-ensure-line-in-file "default-cache-ttl-ssh 600" "$gpg_agent_conf"
-  _git-crypt-ensure-line-in-file "max-cache-ttl-ssh 7200" "$gpg_agent_conf"
-  _git-crypt-ensure-line-in-file "pinentry-program ${pinentry_path}" "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "enable-ssh-support" "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "default-cache-ttl 600" "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "max-cache-ttl 7200" "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "default-cache-ttl-ssh 600" "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "max-cache-ttl-ssh 7200" "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "pinentry-program ${pinentry_path}" "$gpg_agent_conf"
 
-  _git-crypt-ensure-line-in-file "export GPG_TTY=\$(tty)" "$shell_rc"
-  _git-crypt-ensure-line-in-file "gpgconf --launch gpg-agent" "$shell_rc"
-  _git-crypt-ensure-line-in-file "export SSH_AUTH_SOCK=\$(gpgconf --list-dirs agent-ssh-socket)" "$shell_rc"
+  _gpg-ensure-line-in-file "export GPG_TTY=\$(tty)" "$shell_rc"
+  _gpg-ensure-line-in-file "gpgconf --launch gpg-agent" "$shell_rc"
+  _gpg-ensure-line-in-file "export SSH_AUTH_SOCK=\$(gpgconf --list-dirs agent-ssh-socket)" "$shell_rc"
 
   gpgconf --kill gpg-agent || true
   gpgconf --launch gpg-agent
@@ -88,7 +107,7 @@ function git-crypt-setup-gpg-agent {
   echo "Reload your shell to pick up SSH_AUTH_SOCK from $shell_rc"
 }
 
-function git-crypt-setup-ssh-forwarding {
+function gpg-setup-ssh-forwarding {
   local shell_rc="${1:-}"
   local os_name="${2:-$(uname -s)}"
   local ssh_dir="$HOME/.ssh"
@@ -96,7 +115,7 @@ function git-crypt-setup-ssh-forwarding {
   local agent_ssh_socket
   local agent_extra_socket
 
-  git-crypt-setup-gpg-agent "$shell_rc" "$os_name" || return 1
+  gpg-setup-gpg-agent "$shell_rc" "$os_name" || return 1
 
   agent_ssh_socket="$(gpgconf --list-dirs agent-ssh-socket)"
   agent_extra_socket="$(gpgconf --list-dirs agent-extra-socket)"
@@ -123,7 +142,7 @@ EOF
   echo "Use ssh -A <host> to forward your YubiKey-backed ssh key."
 }
 
-function git-crypt-copy-remote-gpg-stubs {
+function gpg-copy-remote-gpg-stubs {
   local remote_host="${1:-}"
   local key_identity="${2:-}"
   local remote_gnupg_dir=".gnupg"
@@ -131,7 +150,7 @@ function git-crypt-copy-remote-gpg-stubs {
   local temp_stubs
 
   if [ -z "$remote_host" ]; then
-    printf 'Usage: git-crypt-copy-remote-gpg-stubs <user@host> [email-or-keyid]\n' >&2
+    printf 'Usage: gpg-copy-remote-gpg-stubs <user@host> [email-or-keyid]\n' >&2
     return 1
   fi
 
@@ -185,10 +204,10 @@ function git-crypt-copy-remote-gpg-stubs {
 }
 
 function copy-remote-gpg-stubs {
-  git-crypt-copy-remote-gpg-stubs "$@"
+  gpg-copy-remote-gpg-stubs "$@"
 }
 
-function git-crypt-export-gpg-pubkey {
+function gpg-export-gpg-pubkey {
   local pubkey_dir="${1:-$HOME/Documents/myPublicKeys}"
   local key_identity="${2:-}"
   local pubkey_file
@@ -206,10 +225,10 @@ function git-crypt-export-gpg-pubkey {
 }
 
 function export-gpg-pubkey {
-  git-crypt-export-gpg-pubkey "$@"
+  gpg-export-gpg-pubkey "$@"
 }
 
-function git-crypt-setup-git-commit-signing {
+function gpg-setup-git-commit-signing {
   local real_name="${1:-}"
   local email="${2:-}"
   local signing_key
@@ -223,18 +242,18 @@ function git-crypt-setup-git-commit-signing {
 }
 
 function setup-git-commit-signing {
-  git-crypt-setup-git-commit-signing "$@"
+  gpg-setup-git-commit-signing "$@"
 }
 
-function git-crypt-key-to-gh {
-  git-crypt-import-keys-to-github "${1:-}" "${2:-}"
+function gpg-key-to-gh {
+  gpg-import-keys-to-github "${1:-}" "${2:-}"
 }
 
 function key-to-gh {
-  git-crypt-key-to-gh "$@"
+  gpg-key-to-gh "$@"
 }
 
-function git-crypt-create-luks-container {
+function gpg-create-luks-container {
   local os_name="${1:-}"
   local luks_path="${2:-}"
   local luks_size_in_gb="${3:-}"
@@ -275,10 +294,10 @@ function git-crypt-create-luks-container {
 }
 
 function create-luks-container {
-  git-crypt-create-luks-container "$@"
+  gpg-create-luks-container "$@"
 }
 
-function git-crypt-test-gpg-signing {
+function gpg-test-gpg-signing {
   echo "Begin Signature Test"
   echo "********************"
   gpg --output ~/rc.sig --sign /etc/hosts 1> /dev/null
@@ -290,10 +309,10 @@ function git-crypt-test-gpg-signing {
 }
 
 function test-gpg-signing {
-  git-crypt-test-gpg-signing "$@"
+  gpg-test-gpg-signing "$@"
 }
 
-function git-crypt-test-git-config {
+function gpg-test-git-config {
   echo 'Current Git Config'
   echo "******************"
   echo 'Current Git Name = ' $(git config --get user.name)
@@ -303,33 +322,33 @@ function git-crypt-test-git-config {
 }
 
 function test-git-config {
-  git-crypt-test-git-config "$@"
+  gpg-test-git-config "$@"
 }
 
-function git-crypt-setup-git-ez {
+function gpg-setup-git-ez {
   local real_name="${1:-}"
   local email="${2:-}"
 
   echo "Beginning Express Git Configuration..."
-  git-crypt-setup-git-commit-signing "$real_name" "$email"
+  gpg-setup-git-commit-signing "$real_name" "$email"
   sleep 1
   echo "Setup Complete! Testing Configuration..."
   echo ""
   sleep 1
-  git-crypt-test-git-config
+  gpg-test-git-config
   sleep 1
-  git-crypt-test-gpg-signing
+  gpg-test-gpg-signing
 }
 
 function setup-git-ez {
-  git-crypt-setup-git-ez "$@"
+  gpg-setup-git-ez "$@"
 }
 
 function setup-ssh-forwarding {
-  git-crypt-setup-ssh-forwarding "$@"
+  gpg-setup-ssh-forwarding "$@"
 }
 
-function git-crypt-init {
+function gpg-init {
   git-crypt init || return
 
   local attrs_file=".gitattributes"
@@ -345,7 +364,7 @@ function git-crypt-init {
   fi
 }
 
-function git-crypt-init-gh-actions {
+function gpg-init-gh-actions {
   local action_file
   local workflow
   local tmp_file
@@ -429,7 +448,7 @@ EOF
   fi
 }
 
-function git-crypt-set-gh-secret {
+function gpg-set-gh-secret {
   local repo
   local status=0
   local xtrace_was_on=0
@@ -460,7 +479,7 @@ function git-crypt-set-gh-secret {
   fi
 
   if [ "$status" -eq 0 ] && [ "$update_actions" -eq 1 ]; then
-    git-crypt-init-gh-actions || status=1
+    gpg-init-gh-actions || status=1
   fi
 
   if [ "$xtrace_was_on" -eq 1 ]; then
@@ -470,7 +489,7 @@ function git-crypt-set-gh-secret {
   return "$status"
 }
 
-function git-crypt-import-keys-to-github {
+function gpg-import-keys-to-github {
   local email="${1:-}"
   local real_name="${2:-}"
   local tmpdir
@@ -483,10 +502,10 @@ function git-crypt-import-keys-to-github {
   local gpg_title
   local ssh_title
 
-  _git-crypt-require-cmd gh || return 1
-  _git-crypt-require-cmd gpg || return 1
-  _git-crypt-require-cmd ssh-add || return 1
-  _git-crypt-require-cmd mktemp || return 1
+  _gpg-require-cmd gh || return 1
+  _gpg-require-cmd gpg || return 1
+  _gpg-require-cmd ssh-add || return 1
+  _gpg-require-cmd mktemp || return 1
 
   if ! gh auth status -h github.com >/dev/null 2>&1; then
     printf 'GitHub CLI is not authenticated for github.com. Run: gh auth login\n' >&2
@@ -570,14 +589,14 @@ function git-crypt-import-keys-to-github {
   printf 'Published GPG and SSH public keys to GitHub\n'
 }
 
-function _git-crypt-require-cmd {
+function _gpg-require-cmd {
   if ! command -v "$1" >/dev/null 2>&1; then
     printf 'Missing required command: %s\n' "$1" >&2
     return 1
   fi
 }
 
-function _git-crypt-doctor-report {
+function _gpg-doctor-report {
   local level="$1"
   local message="$2"
 
@@ -600,7 +619,7 @@ function _git-crypt-doctor-report {
   esac
 }
 
-function git-crypt-doctor {
+function gpg-doctor {
   local failures=0
   local warnings=0
   local in_repo=0
@@ -619,18 +638,18 @@ function git-crypt-doctor {
 
   for cmd in "${required_cmds[@]}"; do
     if command -v "$cmd" >/dev/null 2>&1; then
-      _git-crypt-doctor-report ok "Found command: $cmd"
+      _gpg-doctor-report ok "Found command: $cmd"
     else
-      _git-crypt-doctor-report fail "Missing command: $cmd"
+      _gpg-doctor-report fail "Missing command: $cmd"
       failures=$((failures + 1))
     fi
   done
 
   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     in_repo=1
-    _git-crypt-doctor-report ok "Inside a git repository"
+    _gpg-doctor-report ok "Inside a git repository"
   else
-    _git-crypt-doctor-report warn "Not inside a git repository (repo checks skipped)"
+    _gpg-doctor-report warn "Not inside a git repository (repo checks skipped)"
     warnings=$((warnings + 1))
   fi
 
@@ -642,40 +661,40 @@ function git-crypt-doctor {
       recipient_count="${#recipient_files[@]}"
 
       if [ "$recipient_count" -gt 0 ]; then
-        _git-crypt-doctor-report ok "Found $recipient_count git-crypt recipient key file(s)"
+        _gpg-doctor-report ok "Found $recipient_count git-crypt recipient key file(s)"
       else
-        _git-crypt-doctor-report warn "No recipient key files found in .git-crypt/keys/default/0"
+        _gpg-doctor-report warn "No recipient key files found in .git-crypt/keys/default/0"
         warnings=$((warnings + 1))
       fi
     else
-      _git-crypt-doctor-report warn "git-crypt recipient directory missing (.git-crypt/keys/default/0)"
+      _gpg-doctor-report warn "git-crypt recipient directory missing (.git-crypt/keys/default/0)"
       warnings=$((warnings + 1))
     fi
 
     if [ -f .gitattributes ] && grep -Eq 'filter=git-crypt|diff=git-crypt' .gitattributes; then
-      _git-crypt-doctor-report ok "Detected git-crypt rules in .gitattributes"
+      _gpg-doctor-report ok "Detected git-crypt rules in .gitattributes"
     else
-      _git-crypt-doctor-report warn "No git-crypt rules found in .gitattributes"
+      _gpg-doctor-report warn "No git-crypt rules found in .gitattributes"
       warnings=$((warnings + 1))
     fi
 
     if encrypted_count="$(git-crypt status -e 2>/dev/null | awk 'NF { count++ } END { print count + 0 }')"; then
-      _git-crypt-doctor-report info "git-crypt status reports $encrypted_count encrypted tracked file(s)"
+      _gpg-doctor-report info "git-crypt status reports $encrypted_count encrypted tracked file(s)"
     else
-      _git-crypt-doctor-report warn "Failed to run git-crypt status -e"
+      _gpg-doctor-report warn "Failed to run git-crypt status -e"
       warnings=$((warnings + 1))
     fi
   fi
 
   if gpg_secret_count="$(gpg --list-secret-keys --with-colons 2>/dev/null | awk -F: '$1 == "sec" { count++ } END { print count + 0 }')"; then
     if [ "$gpg_secret_count" -gt 0 ]; then
-      _git-crypt-doctor-report ok "Found $gpg_secret_count local GPG secret key(s)"
+      _gpg-doctor-report ok "Found $gpg_secret_count local GPG secret key(s)"
     else
-      _git-crypt-doctor-report warn "No local GPG secret keys found"
+      _gpg-doctor-report warn "No local GPG secret keys found"
       warnings=$((warnings + 1))
     fi
   else
-    _git-crypt-doctor-report fail "Unable to list GPG secret keys"
+    _gpg-doctor-report fail "Unable to list GPG secret keys"
     failures=$((failures + 1))
   fi
 
@@ -684,39 +703,39 @@ function git-crypt-doctor {
     agent_extra_socket="$(gpgconf --list-dirs agent-extra-socket 2>/dev/null)"
 
     if [ -n "$agent_ssh_socket" ]; then
-      _git-crypt-doctor-report info "gpg-agent ssh socket path: $agent_ssh_socket"
+      _gpg-doctor-report info "gpg-agent ssh socket path: $agent_ssh_socket"
     else
-      _git-crypt-doctor-report warn "Could not determine gpg-agent ssh socket path"
+      _gpg-doctor-report warn "Could not determine gpg-agent ssh socket path"
       warnings=$((warnings + 1))
     fi
 
     if [ -n "$agent_extra_socket" ]; then
-      _git-crypt-doctor-report info "gpg-agent extra socket path: $agent_extra_socket"
+      _gpg-doctor-report info "gpg-agent extra socket path: $agent_extra_socket"
     else
-      _git-crypt-doctor-report warn "Could not determine gpg-agent extra socket path"
+      _gpg-doctor-report warn "Could not determine gpg-agent extra socket path"
       warnings=$((warnings + 1))
     fi
   else
-    _git-crypt-doctor-report warn "gpgconf not found; skipping gpg-agent socket checks"
+    _gpg-doctor-report warn "gpgconf not found; skipping gpg-agent socket checks"
     warnings=$((warnings + 1))
   fi
 
   if [ -n "${GPG_TTY:-}" ]; then
-    _git-crypt-doctor-report ok "GPG_TTY is set"
+    _gpg-doctor-report ok "GPG_TTY is set"
   else
-    _git-crypt-doctor-report warn "GPG_TTY is not set in current shell"
+    _gpg-doctor-report warn "GPG_TTY is not set in current shell"
     warnings=$((warnings + 1))
   fi
 
   if command -v gh >/dev/null 2>&1; then
     if gh auth status >/dev/null 2>&1; then
-      _git-crypt-doctor-report ok "GitHub CLI authenticated"
+      _gpg-doctor-report ok "GitHub CLI authenticated"
     else
-      _git-crypt-doctor-report warn "GitHub CLI installed but not authenticated"
+      _gpg-doctor-report warn "GitHub CLI installed but not authenticated"
       warnings=$((warnings + 1))
     fi
   else
-    _git-crypt-doctor-report info "GitHub CLI not installed (only needed for GITCRYPT_KEY secret automation)"
+    _gpg-doctor-report info "GitHub CLI not installed (only needed for GITCRYPT_KEY secret automation)"
   fi
 
   printf 'Diagnostics complete: %d failure(s), %d warning(s)\n' "$failures" "$warnings"
@@ -728,11 +747,11 @@ function git-crypt-doctor {
   return 0
 }
 
-function git-crypt-diagnostics {
-  git-crypt-doctor "$@"
+function gpg-diagnostics {
+  gpg-doctor "$@"
 }
 
-function _git-crypt-parse-encrypted-files {
+function _gpg-parse-encrypted-files {
   local line
   local trimmed
   local file
@@ -752,7 +771,7 @@ function _git-crypt-parse-encrypted-files {
   done < <(git-crypt status -e)
 }
 
-function git-crypt-rekey {
+function gpg-rekey {
   local skip_unlock=0
   local gh_secret_mode="prompt"
   local gh_repo
@@ -765,9 +784,9 @@ function git-crypt-rekey {
   local basename_value
   local recipient
 
-  _git-crypt-require-cmd git || return 1
-  _git-crypt-require-cmd git-crypt || return 1
-  _git-crypt-require-cmd gpg || return 1
+  _gpg-require-cmd git || return 1
+  _gpg-require-cmd git-crypt || return 1
+  _gpg-require-cmd gpg || return 1
 
   for arg in "$@"; do
     case "$arg" in
@@ -782,7 +801,7 @@ function git-crypt-rekey {
         ;;
       *)
         printf 'Unknown option: %s\n' "$arg" >&2
-        printf 'Usage: git-crypt-rekey [--no-unlock] [--update-gh-secret|--no-update-gh-secret]\n' >&2
+        printf 'Usage: gpg-rekey [--no-unlock] [--update-gh-secret|--no-update-gh-secret]\n' >&2
         return 1
         ;;
     esac
@@ -833,7 +852,7 @@ function git-crypt-rekey {
     fi
   done
 
-  mapfile -t encrypted_files < <(_git-crypt-parse-encrypted-files)
+  mapfile -t encrypted_files < <(_gpg-parse-encrypted-files)
 
   if [ "${#encrypted_files[@]}" -eq 0 ]; then
     printf 'No encrypted files found; recipient keys were rotated.\n'
@@ -850,7 +869,7 @@ function git-crypt-rekey {
     if [ -n "$gh_repo" ]; then
       if [ "$gh_secret_mode" = "yes" ]; then
         printf 'Updating GITCRYPT_KEY in GitHub for %s...\n' "$gh_repo"
-        git-crypt-set-gh-secret --no-actions || return 1
+        gpg-set-gh-secret --no-actions || return 1
       elif [ -t 0 ]; then
         printf 'Update GITCRYPT_KEY in GitHub for %s now? [y/N]: ' "$gh_repo"
         IFS= read -r update_gh_secret_reply
@@ -858,7 +877,7 @@ function git-crypt-rekey {
         case "$update_gh_secret_reply" in
           [Yy]|[Yy][Ee][Ss])
             printf 'Updating GITCRYPT_KEY in GitHub...\n'
-            git-crypt-set-gh-secret --no-actions || return 1
+            gpg-set-gh-secret --no-actions || return 1
             ;;
         esac
       fi
@@ -868,7 +887,7 @@ function git-crypt-rekey {
   printf 'Done. Review changes with git status and git diff --cached.\n'
 }
 
-function _git-crypt-base64-decode {
+function _gpg-base64-decode {
   if base64 --decode >/dev/null 2>&1 <<<""; then
     base64 --decode
   else
@@ -876,15 +895,15 @@ function _git-crypt-base64-decode {
   fi
 }
 
-function _git-crypt-normalize-token {
+function _gpg-normalize-token {
   printf '%s' "$1" | tr -cd '[:alnum:]' | tr '[:lower:]' '[:upper:]'
 }
 
-function _git-crypt-short-fingerprint {
+function _gpg-short-fingerprint {
   local normalized
   local short
 
-  normalized="$(_git-crypt-normalize-token "$1")"
+  normalized="$(_gpg-normalize-token "$1")"
 
   if [ "${#normalized}" -gt 8 ]; then
     short="${normalized: -8}"
@@ -899,7 +918,7 @@ function _git-crypt-short-fingerprint {
   fi
 }
 
-function git-crypt-share-key {
+function gpg-share-key {
   local -a key_rows
   local selected
   local uid
@@ -957,7 +976,7 @@ function git-crypt-share-key {
     for idx in "${!key_rows[@]}"; do
       uid="${key_rows[$idx]%%$'\t'*}"
       fingerprint="${key_rows[$idx]#*$'\t'}"
-      printf '  %d) %s [%s]\n' "$((idx + 1))" "$uid" "$(_git-crypt-short-fingerprint "$fingerprint")"
+      printf '  %d) %s [%s]\n' "$((idx + 1))" "$uid" "$(_gpg-short-fingerprint "$fingerprint")"
     done
 
     printf 'Select key number (blank to cancel): '
@@ -986,14 +1005,14 @@ function git-crypt-share-key {
 
   encoded_key="$(printf '%s' "$armored_key" | base64 | tr -d '\n')"
   share_string="GPGSHARE1:${fingerprint}:${encoded_key}"
-  short_fingerprint="$(_git-crypt-short-fingerprint "$fingerprint")"
+  short_fingerprint="$(_gpg-short-fingerprint "$fingerprint")"
 
   printf 'Share this string with the other user:\n\n%s\n\n' "$share_string"
   printf 'Verbal confirmation code: %s\n' "$short_fingerprint"
   printf 'Selected key: %s\n' "$uid"
 }
 
-function git-crypt-import-shared-key {
+function gpg-import-shared-key {
   local share_string
   local payload
   local sender_fingerprint
@@ -1037,14 +1056,14 @@ function git-crypt-import-shared-key {
     return 1
   fi
 
-  sender_fingerprint="$(_git-crypt-normalize-token "$sender_fingerprint")"
+  sender_fingerprint="$(_gpg-normalize-token "$sender_fingerprint")"
 
   if [ -z "$sender_fingerprint" ]; then
     printf 'Invalid fingerprint in shared key\n' >&2
     return 1
   fi
 
-  if ! armored_key="$(printf '%s' "$encoded_key" | _git-crypt-base64-decode 2>/dev/null)"; then
+  if ! armored_key="$(printf '%s' "$encoded_key" | _gpg-base64-decode 2>/dev/null)"; then
     printf 'Failed to decode shared key data\n' >&2
     return 1
   fi
@@ -1057,7 +1076,7 @@ function git-crypt-import-shared-key {
     printf '%s' "$armored_key" | gpg --import-options show-only --dry-run --with-colons --import 2>/dev/null
   } | awk -F: '$1 == "uid" { print $10; exit }')"
 
-  imported_fingerprint="$(_git-crypt-normalize-token "$imported_fingerprint")"
+  imported_fingerprint="$(_gpg-normalize-token "$imported_fingerprint")"
 
   if [ -z "$imported_fingerprint" ]; then
     printf 'Could not read fingerprint from shared key data\n' >&2
@@ -1069,14 +1088,14 @@ function git-crypt-import-shared-key {
     return 1
   fi
 
-  expected_code="$(_git-crypt-short-fingerprint "$sender_fingerprint")"
-  normalized_expected="$(_git-crypt-normalize-token "$expected_code")"
+  expected_code="$(_gpg-short-fingerprint "$sender_fingerprint")"
+  normalized_expected="$(_gpg-normalize-token "$expected_code")"
 
   printf 'Key to import: %s\n' "$imported_uid"
   printf 'Enter verbally confirmed fingerprint code: '
   IFS= read -r spoken_code
 
-  normalized_spoken="$(_git-crypt-normalize-token "$spoken_code")"
+  normalized_spoken="$(_gpg-normalize-token "$spoken_code")"
 
   if [ "$normalized_spoken" != "$normalized_expected" ]; then
     printf 'Fingerprint confirmation failed; key not imported\n' >&2
@@ -1091,7 +1110,7 @@ function git-crypt-import-shared-key {
   printf 'Imported key fingerprint: %s\n' "$sender_fingerprint"
 }
 
-function git-crypt-add-gpg-user-interactive {
+function gpg-add-gpg-user-interactive {
   local -a key_rows
   local selected
   local user_id
@@ -1155,7 +1174,7 @@ function git-crypt-add-gpg-user-interactive {
   git-crypt add-gpg-user "$user_id"
 }
 
-function git-crypt-remove-gpg-user {
+function gpg-remove-gpg-user {
   local target_user
   local target_file
   local -a recipient_files
@@ -1170,9 +1189,9 @@ function git-crypt-remove-gpg-user {
   local target_normalized
   local candidate_normalized
 
-  _git-crypt-require-cmd git || return 1
-  _git-crypt-require-cmd git-crypt || return 1
-  _git-crypt-require-cmd gpg || return 1
+  _gpg-require-cmd git || return 1
+  _gpg-require-cmd git-crypt || return 1
+  _gpg-require-cmd gpg || return 1
 
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     printf 'Run this function from inside a git repository\n' >&2
@@ -1214,7 +1233,7 @@ function git-crypt-remove-gpg-user {
   if [ "$#" -gt 0 ]; then
     target_user="$1"
   else
-    _git-crypt-require-cmd fzf || return 1
+    _gpg-require-cmd fzf || return 1
 
     if [ "${#key_rows[@]}" -eq 0 ]; then
       printf 'No removable recipients found (only your own key is present)\n' >&2
@@ -1233,12 +1252,12 @@ function git-crypt-remove-gpg-user {
 
   if [ ! -f "$target_file" ]; then
     matched_user=""
-    target_normalized="$(_git-crypt-normalize-token "$target_user")"
+    target_normalized="$(_gpg-normalize-token "$target_user")"
 
     for target_file in "${recipient_files[@]}"; do
       basename_value="${target_file##*/}"
       recipient_id="${basename_value%.gpg}"
-      candidate_normalized="$(_git-crypt-normalize-token "$recipient_id")"
+      candidate_normalized="$(_gpg-normalize-token "$recipient_id")"
 
       if [ "$candidate_normalized" = "$target_normalized" ] || [[ "$candidate_normalized" == *"$target_normalized" ]]; then
         if [ -n "$matched_user" ]; then
@@ -1276,14 +1295,14 @@ function git-crypt-remove-gpg-user {
   printf 'Removed recipient key for: %s\n' "$target_user"
   printf 'Rotating repository symmetric key to revoke prior access...\n'
 
-  git-crypt-rekey --no-unlock
+  gpg-rekey --no-unlock
 }
 
-function _git-crypt-first-fingerprint {
+function _gpg-first-fingerprint {
   gpg --with-colons --fingerprint "$1" 2>/dev/null | awk -F: '$1 == "fpr" { print $10; exit }'
 }
 
-function _git-crypt-generate-test-key {
+function _gpg-generate-test-key {
   local gnupg_home
   local real_name
   local email
@@ -1311,7 +1330,7 @@ function _git-crypt-generate-test-key {
   return 1
 }
 
-function _git-crypt-test-forwarding-features {
+function _gpg-test-forwarding-features {
   local sandbox_root="$1"
   local test_home="$sandbox_root/forwarding-home"
   local fake_bin="$sandbox_root/forwarding-bin"
@@ -1384,7 +1403,7 @@ EOF
   chmod +x "$fake_bin/gpgconf" "$fake_bin/gpg-connect-agent" "$fake_bin/gpg" "$fake_bin/ssh" "$fake_bin/scp"
 
   HOME="$test_home" PATH="$fake_bin:$PATH" SHELL=/bin/bash \
-    git-crypt-setup-gpg-agent "$shell_rc" Linux
+    gpg-setup-gpg-agent "$shell_rc" Linux
 
   [ -f "$gpg_agent_conf" ] || {
     printf 'Forwarding test failed: gpg-agent.conf not created\n' >&2
@@ -1402,7 +1421,7 @@ EOF
   }
 
   HOME="$test_home" PATH="$fake_bin:$PATH" SHELL=/bin/bash \
-    git-crypt-setup-gpg-agent "$shell_rc" Linux
+    gpg-setup-gpg-agent "$shell_rc" Linux
 
   gpg_tty_count="$(grep -Fxc "export GPG_TTY=\$(tty)" "$shell_rc")"
   [ "$gpg_tty_count" -eq 1 ] || {
@@ -1411,7 +1430,7 @@ EOF
   }
 
   HOME="$test_home" PATH="$fake_bin:$PATH" SHELL=/bin/bash \
-    git-crypt-setup-ssh-forwarding "$shell_rc" Linux
+    gpg-setup-ssh-forwarding "$shell_rc" Linux
 
   [ -f "$ssh_config" ] || {
     printf 'Forwarding test failed: ssh config not created\n' >&2
@@ -1429,7 +1448,7 @@ EOF
   }
 
   HOME="$test_home" PATH="$fake_bin:$PATH" SHELL=/bin/bash FAKE_CALL_LOG="$call_log" \
-    git-crypt-copy-remote-gpg-stubs "tester@example-host" "stub@example.com"
+    gpg-copy-remote-gpg-stubs "tester@example-host" "stub@example.com"
 
   grep -Fq 'scp ' "$call_log" || {
     printf 'Forwarding test failed: scp was not called\n' >&2
@@ -1442,7 +1461,7 @@ EOF
   }
 }
 
-function git-crypt-test-sandbox {
+function gpg-test-sandbox {
   (
     set -euo pipefail
 
@@ -1458,11 +1477,11 @@ function git-crypt-test-sandbox {
     local verbal_code
     local test_secret
 
-    _git-crypt-require-cmd git
-    _git-crypt-require-cmd git-crypt
-    _git-crypt-require-cmd gpg
-    _git-crypt-require-cmd awk
-    _git-crypt-require-cmd mktemp
+    _gpg-require-cmd git
+    _gpg-require-cmd git-crypt
+    _gpg-require-cmd gpg
+    _gpg-require-cmd awk
+    _gpg-require-cmd mktemp
 
     sandbox_root="${1:-$(mktemp -d "${TMPDIR:-/tmp}/git-crypt-sandbox.XXXXXX")}" 
     mkdir -p "$sandbox_root"
@@ -1478,11 +1497,11 @@ function git-crypt-test-sandbox {
 
     printf 'Creating sandbox in %s\n' "$sandbox_root"
 
-    _git-crypt-generate-test-key "$alice_home" "Alice Example" "alice@example.com"
-    _git-crypt-generate-test-key "$bob_home" "Bob Example" "bob@example.com"
+    _gpg-generate-test-key "$alice_home" "Alice Example" "alice@example.com"
+    _gpg-generate-test-key "$bob_home" "Bob Example" "bob@example.com"
 
-    alice_fpr="$(GNUPGHOME="$alice_home" _git-crypt-first-fingerprint "alice@example.com")"
-    bob_fpr="$(GNUPGHOME="$bob_home" _git-crypt-first-fingerprint "bob@example.com")"
+    alice_fpr="$(GNUPGHOME="$alice_home" _gpg-first-fingerprint "alice@example.com")"
+    bob_fpr="$(GNUPGHOME="$bob_home" _gpg-first-fingerprint "bob@example.com")"
 
     if [ -z "$alice_fpr" ] || [ -z "$bob_fpr" ]; then
       printf 'Failed to generate sandbox GPG keys\n' >&2
@@ -1502,7 +1521,7 @@ function git-crypt-test-sandbox {
       GNUPGHOME="$alice_home" gpg --import "$sandbox_root/bob.pub.asc" >/dev/null 2>&1
       printf '%s:6:\n' "$bob_fpr" | GNUPGHOME="$alice_home" gpg --import-ownertrust >/dev/null 2>&1
 
-      GNUPGHOME="$alice_home" git-crypt-init || {
+      GNUPGHOME="$alice_home" gpg-init || {
         printf 'Failed to initialize git-crypt\n' >&2
         exit 1
       }
@@ -1540,7 +1559,7 @@ function git-crypt-test-sandbox {
       fi
     ) || exit 1
 
-    share_output="$(GNUPGHOME="$bob_home" git-crypt-share-key)"
+    share_output="$(GNUPGHOME="$bob_home" gpg-share-key)"
     share_token="$(printf '%s\n' "$share_output" | awk '/^GPGSHARE1:/{print; exit}')"
     verbal_code="$(printf '%s\n' "$share_output" | awk -F': ' '/^Verbal confirmation code:/{print $2; exit}')"
 
@@ -1551,18 +1570,18 @@ function git-crypt-test-sandbox {
 
     (
       cd "$repo_dir"
-      printf '%s\n' "$verbal_code" | GNUPGHOME="$alice_home" git-crypt-import-shared-key "$share_token" >/dev/null
+      printf '%s\n' "$verbal_code" | GNUPGHOME="$alice_home" gpg-import-shared-key "$share_token" >/dev/null
       if ! GNUPGHOME="$alice_home" gpg --list-keys "$bob_fpr" >/dev/null 2>&1; then
         printf 'Shared key import test failed\n' >&2
         exit 1
       fi
 
-      if GNUPGHOME="$alice_home" git-crypt-remove-gpg-user "$alice_fpr" >/dev/null 2>&1; then
+      if GNUPGHOME="$alice_home" gpg-remove-gpg-user "$alice_fpr" >/dev/null 2>&1; then
         printf 'Self-removal guard failed\n' >&2
         exit 1
       fi
 
-      GNUPGHOME="$alice_home" git-crypt-remove-gpg-user "$bob_fpr" >/dev/null || {
+      GNUPGHOME="$alice_home" gpg-remove-gpg-user "$bob_fpr" >/dev/null || {
         printf 'Failed to remove Bob recipient\n' >&2
         exit 1
       }
@@ -1580,7 +1599,7 @@ function git-crypt-test-sandbox {
       fi
     ) || exit 1
 
-    _git-crypt-test-forwarding-features "$sandbox_root" || exit 1
+    _gpg-test-forwarding-features "$sandbox_root" || exit 1
 
     printf 'Sandbox E2E test passed\n'
     printf 'Sandbox path: %s\n' "$sandbox_root"

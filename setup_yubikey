@@ -15,6 +15,11 @@ fi
 # Used to export publickeys for user to upload to gitlab web UI
 PUBKEY_PATH="${HOME}/Documents/myPublicKeys/"
 
+if [ ! -d ~/.gnupg/ ]
+then
+  mkdir -p ~/.gnupg/
+fi
+
 ## Don't modify below
 OS="$(uname -s)"
 case "$OS" in
@@ -225,9 +230,9 @@ function install {
       echo "Homebrew is required on macOS. Install it from https://brew.sh"
       exit 1
     fi
-    brew install gnupg pinentry-mac ykpers 2>/dev/null || brew upgrade gnupg pinentry-mac ykpers 2>/dev/null || true
+    brew install gnupg pinentry-mac ykpers ykman 2>/dev/null || brew upgrade gnupg pinentry-mac ykpers ykman 2>/dev/null || true
   else
-    sudo apt-get -y install gpg gpg-agent scdaemon yubikey-personalization yubikey-personalization-gui yubikey-luks > /dev/null 2>&1
+    sudo apt-get -y install gpg gpg-agent scdaemon yubikey-manager yubikey-personalization yubikey-personalization-gui yubikey-luks > /dev/null 2>&1
 
     cat << EOP | sudo tee /etc/udev/rules.d/99-yubikey.rules
 # YubiKey 4 OTP+U2F+CCID
@@ -238,36 +243,23 @@ EOP
 }
 
 function reset_yubikey {
-cleanup
-cat << EOP > yubikey_reset
-/hex
-scd serialno
-scd apdu 00 20 00 81 08 40 40 40 40 40 40 40 40
-scd apdu 00 20 00 81 08 40 40 40 40 40 40 40 40
-scd apdu 00 20 00 81 08 40 40 40 40 40 40 40 40
-scd apdu 00 20 00 81 08 40 40 40 40 40 40 40 40
-scd apdu 00 20 00 83 08 40 40 40 40 40 40 40 40
-scd apdu 00 20 00 83 08 40 40 40 40 40 40 40 40
-scd apdu 00 20 00 83 08 40 40 40 40 40 40 40 40
-scd apdu 00 20 00 83 08 40 40 40 40 40 40 40 40
-scd apdu 00 e6 00 00
-scd apdu 00 44 00 00
-/echo Card has been successfully reset.
-/bye
-EOP
-
-gpg-connect-agent -r yubikey_reset > /dev/null 2>&1
-
-rm -f yubikey_reset || true
-#ykpersonalize -m 5
+  cleanup
+  sleep 1
+  ykman piv reset -f
+  ykman openpgp reset -f
+  ykman oath reset -f
+  ykman hsmauth reset -f
+  read -r -p "Unplug your YubiKey, plug it back in (within 5 seconds), then press Enter to continue with FIDO reset... "
+  ykman fido reset -f
+  ykman config usb --disable OTP -f
 }
 
 function generate_master {
-rm -fR gnupg_home
-mkdir -p gnupg_home && chmod 700 gnupg_home && cd gnupg_home
+  rm -fR gnupg_home
+  mkdir -p gnupg_home && chmod 700 gnupg_home && cd gnupg_home
 
-export GNUPGHOME="$(pwd)"
-cleanup
+  export GNUPGHOME="$(pwd)"
+  cleanup
 cat << EOF > "$GNUPGHOME/gpg.conf"
 default-preference-list SHA512 SHA384 SHA256 SHA224 AES256 AES192 AES CAMELLIA256 CAMELLIA192 CAMELLIA128 TWOFISH
 cert-digest-algo SHA512
@@ -276,11 +268,11 @@ use-agent
 lock-never
 EOF
 
-if [[ "$OS" == "Darwin" ]]; then
-  PINENTRY_PATH="$(which pinentry-mac 2>/dev/null || echo /opt/homebrew/bin/pinentry-mac)"
-else
-  PINENTRY_PATH="/usr/bin/pinentry-gnome3"
-fi
+  if [[ "$OS" == "Darwin" ]]; then
+    PINENTRY_PATH="$(which pinentry-mac 2>/dev/null || echo /opt/homebrew/bin/pinentry-mac)"
+  else
+    PINENTRY_PATH="/usr/bin/pinentry-gnome3"
+  fi
 
 cat << EOF > "$GNUPGHOME/gpg-agent.conf"
 enable-ssh-support
@@ -438,7 +430,9 @@ ssh-add -L > $KEYID-ssh-pubkey
 
 function keys_to_user {
   now=$(date +"%Y%m%d-%s")
-  mv ~/.gnupg ~/.gnupg."$now"
+  if [ -e "$HOME/.gnupg" ]; then
+    mv "$HOME/.gnupg" "$HOME/.gnupg.$now"
+  fi
   cp -r gnupg_home_stubs ~/.gnupg
   sudo chown -R "$(whoami)" ~/.gnupg
   sudo find ~/.gnupg -type f -exec chmod 600 {} \;
@@ -517,6 +511,7 @@ case "${1:-}" in
     init_ez
     ;;
   'setup-key-ez')
+    set -x
     echo "Reseting YubiKey and copying user keys there"
     setup_key_ez
     ;;

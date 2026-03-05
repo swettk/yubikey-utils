@@ -227,16 +227,46 @@ function export-gpg-pubkey {
 }
 
 function gpg-setup-git-commit-signing {
-  local real_name="${1:-}"
-  local email="${2:-}"
   local signing_key
+  local uid_string
+  local real_name
+  local email
 
-  signing_key="$(gpg --list-secret-keys --keyid-format LONG | grep sec | cut -d ' ' -f4 | cut -c9-)"
+  signing_key="$(gpg --list-secret-keys --with-colons --keyid-format LONG 2>/dev/null \
+    | awk -F: '$1 == "sec" { found = 1; next } found && $1 == "fpr" { print $10; exit }')"
+
+  if [ -z "$signing_key" ]; then
+    printf 'No GPG secret key found\n' >&2
+    return 1
+  fi
+
+  uid_string="$(gpg --list-secret-keys --with-colons "$signing_key" 2>/dev/null \
+    | awk -F: '$1 == "uid" { print $10; exit }')"
+
+  if [ -z "$uid_string" ]; then
+    printf 'Unable to read uid from signing key %s\n' "$signing_key" >&2
+    return 1
+  fi
+
+  # Parse "Real Name <email>" from uid string
+  real_name="${uid_string%% <*}"
+  email="${uid_string##*<}"
+  email="${email%%>*}"
+
+  if [ -z "$real_name" ] || [ -z "$email" ]; then
+    printf 'Unable to parse name and email from uid: %s\n' "$uid_string" >&2
+    return 1
+  fi
 
   git config --global commit.gpgsign true
   git config --global user.signingkey "$signing_key"
   git config --global user.name "$real_name"
   git config --global user.email "$email"
+
+  printf 'Configured git commit signing:\n'
+  printf '  user.name       = %s\n' "$real_name"
+  printf '  user.email      = %s\n' "$email"
+  printf '  user.signingkey = %s\n' "$signing_key"
 }
 
 function setup-git-commit-signing {
@@ -324,11 +354,8 @@ function test-git-config {
 }
 
 function gpg-setup-git-ez {
-  local real_name="${1:-}"
-  local email="${2:-}"
-
   echo "Beginning Express Git Configuration..."
-  gpg-setup-git-commit-signing "$real_name" "$email"
+  gpg-setup-git-commit-signing || return 1
   sleep 1
   echo "Setup Complete! Testing Configuration..."
   echo ""

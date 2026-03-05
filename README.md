@@ -18,6 +18,12 @@ From the repository root:
 - `setup-gpg-agent`
 - `setup-gpg-helpers`
 
+## Platform Support
+
+- **macOS** and **Ubuntu Linux** are supported.
+- OS is detected automatically via `uname -s`.
+- LUKS container features (`create-luks-container`, `unlock_vault`, `lock_vault`) are Linux-only.
+
 ## Command Reference
 
 Run any command with:
@@ -29,19 +35,19 @@ Run any command with:
 Available commands:
 
 ```text
-init
-init-ez
-reset-yubikey
-generate-master
-setup-key-ez
-keys-to-card
-keys-to-user
-enable-hmac
-setup-gpg-agent
-setup-gpg-helpers
-setup-vars
-oneshot
-help
+init              Install required dependencies
+init-ez           init + generate-master quick flow
+reset-yubikey     Reset YubiKey applications to factory defaults
+generate-master   Generate OpenPGP master key material (Ed25519)
+setup-key-ez      reset-yubikey + keys-to-card + enable-hmac combo
+keys-to-card      Move generated subkeys to YubiKey slots
+keys-to-user      Copy gnupg_home_stubs/ to ~/.gnupg and run setup-gpg-agent
+enable-hmac       Configure HMAC challenge-response on YubiKey slot 2
+setup-gpg-agent   Configure and start gpg-agent with SSH support
+setup-gpg-helpers Install gpg-helpers.sh functions into your shell profile
+setup-vars        Interactively write setup_variables (identity and secrets)
+oneshot           Full guided flow (see Quickstart)
+help              Show command help text
 ```
 
 ## Setup Notes
@@ -59,17 +65,66 @@ gpg --list-keys
 ssh-add -L
 ```
 
-After running `./setup-yubikey setup-gpg-helpers`, helper shell functions become available in your shell profile, including:
+### Shell Helper Functions
 
-- `setup-git-ez`
-- `setup-git-commit-signing`
-- `test-git-config`
-- `test-gpg-signing`
-- `setup-ssh-forwarding`
-- `copy-remote-gpg-stubs`
-- `export-gpg-pubkey`
-- `key-to-gh`
-- `create-luks-container` (Linux only)
+After running `./setup-yubikey setup-gpg-helpers`, the following functions become available in your shell. Legacy short aliases are listed in parentheses where they exist.
+
+#### Git & GPG Setup
+
+| Function | Description |
+|---|---|
+| `gpg-setup-git-ez` (`setup-git-ez`) | Express git setup: commit signing + config test + signing test |
+| `gpg-setup-git-commit-signing` (`setup-git-commit-signing`) | Configure `git config --global` for GPG commit signing |
+| `gpg-test-git-config` (`test-git-config`) | Display current git signing config |
+| `gpg-test-gpg-signing` (`test-gpg-signing`) | Test GPG signing and verification |
+
+#### Key Management & Sharing
+
+| Function | Description |
+|---|---|
+| `gpg-export-gpg-pubkey` (`export-gpg-pubkey`) | Export GPG public key to a file |
+| `gpg-key-to-gh` (`key-to-gh`) | Upload GPG and SSH public keys to GitHub |
+| `gpg-share-key` | Export a GPG public key as a shareable `GPGSHARE1:` string |
+| `gpg-import-shared-pubkey` | Import a GPG public key from a `GPGSHARE1:` share string |
+
+#### SSH & Remote
+
+| Function | Description |
+|---|---|
+| `gpg-setup-ssh-forwarding` (`setup-ssh-forwarding`) | Add commented-out SSH agent forwarding config to `~/.ssh/config` |
+| `gpg-copy-remote-gpg-stubs` (`copy-remote-gpg-stubs`) | Copy GPG public key + stubs to a remote host |
+
+#### git-crypt Workflow
+
+| Function | Description |
+|---|---|
+| `gpg-init` | Initialize `git-crypt` in the current repo |
+| `gpg-add-gpg-user-interactive` | Interactively select a GPG key and add it as a `git-crypt` recipient |
+| `gpg-gitcrypt-remove-gpg-user` | Remove a `git-crypt` recipient and rotate the symmetric key |
+| `gpg-gitcrypt-rekey` | Rotate the `git-crypt` symmetric key for all current recipients |
+| `gpg-set-gh-secret` | Push the `git-crypt` key to a GitHub repo secret (`GITCRYPT_KEY`) |
+| `gpg-init-gh-actions` | Create a reusable GitHub Action for `git-crypt unlock` |
+
+#### Diagnostics
+
+| Function | Description |
+|---|---|
+| `gpg-doctor` (`gpg-diagnostics`) | Run diagnostics: commands, git-crypt status, GPG keys, agent sockets, GitHub CLI |
+| `gpg-test-sandbox` | End-to-end sandbox test of git-crypt init/add/remove/rekey and key sharing |
+
+#### LUKS (Linux only)
+
+| Function | Description |
+|---|---|
+| `gpg-create-luks-container` (`create-luks-container`) | Create a LUKS-encrypted container using YubiKey HMAC |
+
+The `openvault.bash` script provides `unlock_vault` and `lock_vault` for LUKS containers (Linux only). Source it to use:
+
+```bash
+source ./openvault.bash
+unlock_vault
+lock_vault
+```
 
 ## License
 

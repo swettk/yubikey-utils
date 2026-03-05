@@ -1030,7 +1030,7 @@ function gpg-share-key {
   printf 'Selected key: %s\n' "$uid"
 }
 
-function gpg-import-shared-key {
+function gpg-import-shared-pubkey {
   local share_string
   local payload
   local sender_fingerprint
@@ -1591,7 +1591,7 @@ function gpg-test-sandbox {
 
     (
       cd "$repo_dir"
-      printf '%s\n' "$verbal_code" | GNUPGHOME="$alice_home" gpg-import-shared-key "$share_token" >/dev/null
+      printf '%s\n' "$verbal_code" | GNUPGHOME="$alice_home" gpg-import-shared-pubkey "$share_token" >/dev/null
       if ! GNUPGHOME="$alice_home" gpg --list-keys "$bob_fpr" >/dev/null 2>&1; then
         printf 'Shared key import test failed\n' >&2
         exit 1

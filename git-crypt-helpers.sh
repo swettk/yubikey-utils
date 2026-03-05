@@ -325,6 +325,106 @@ function git-crypt-set-gh-secret {
   return "$status"
 }
 
+function git-crypt-import-keys-to-github {
+  local email="${1:-}"
+  local real_name="${2:-}"
+  local tmpdir
+  local gpg_pub
+  local ssh_pub
+  local ssh_keys
+  local selected_ssh_key
+  local host_short
+  local today
+  local gpg_title
+  local ssh_title
+
+  _git-crypt-require-cmd gh || return 1
+  _git-crypt-require-cmd gpg || return 1
+  _git-crypt-require-cmd ssh-add || return 1
+  _git-crypt-require-cmd mktemp || return 1
+
+  if ! gh auth status -h github.com >/dev/null 2>&1; then
+    printf 'GitHub CLI is not authenticated for github.com. Run: gh auth login\n' >&2
+    return 1
+  fi
+
+  if [ -z "$email" ]; then
+    email="$(git config --global --get user.email 2>/dev/null || true)"
+  fi
+
+  if [ -z "$real_name" ]; then
+    real_name="$(git config --global --get user.name 2>/dev/null || true)"
+  fi
+
+  tmpdir="$(mktemp -d)"
+  gpg_pub="$tmpdir/gpg.pub"
+  ssh_pub="$tmpdir/ssh.pub"
+
+  if [ -n "$email" ]; then
+    gpg --armor --export "$email" > "$gpg_pub"
+  else
+    gpg --armor --export > "$gpg_pub"
+  fi
+
+  if [ ! -s "$gpg_pub" ]; then
+    rm -rf "$tmpdir"
+    printf 'Unable to export a GPG public key%s\n' "${email:+ for $email}." >&2
+    return 1
+  fi
+
+  if ! ssh_keys="$(ssh-add -L 2>/dev/null)"; then
+    rm -rf "$tmpdir"
+    printf 'Unable to read SSH public keys from ssh-agent\n' >&2
+    printf 'Run setup-ssh-forwarding and ensure your YubiKey auth key is loaded\n' >&2
+    return 1
+  fi
+
+  if [ -z "$ssh_keys" ] || [[ "$ssh_keys" == *"The agent has no identities"* ]]; then
+    rm -rf "$tmpdir"
+    printf 'No SSH public keys found in ssh-agent\n' >&2
+    printf 'Run setup-ssh-forwarding and ensure your YubiKey auth key is loaded\n' >&2
+    return 1
+  fi
+
+  selected_ssh_key="$(printf '%s\n' "$ssh_keys" | awk '/cardno|card|[Yy]ubi[Kk]ey/ { print; found = 1; exit } END { if (!found) print "" }')"
+  if [ -z "$selected_ssh_key" ]; then
+    selected_ssh_key="$(printf '%s\n' "$ssh_keys" | awk 'NF { print; exit }')"
+  fi
+
+  if [ -z "$selected_ssh_key" ]; then
+    rm -rf "$tmpdir"
+    printf 'Unable to determine an SSH public key to upload\n' >&2
+    return 1
+  fi
+
+  printf '%s\n' "$selected_ssh_key" > "$ssh_pub"
+
+  host_short="$(hostname -s 2>/dev/null || hostname)"
+  today="$(date +%Y-%m-%d)"
+
+  if [ -z "$real_name" ]; then
+    real_name="${email:-$(whoami)}"
+  fi
+
+  gpg_title="${real_name} yubikey ${today}"
+  ssh_title="${real_name}@${host_short} yubikey ${today}"
+
+  printf 'Publishing GPG key to GitHub...\n'
+  if ! gh gpg-key add "$gpg_pub" --title "$gpg_title"; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  printf 'Publishing SSH key to GitHub...\n'
+  if ! gh ssh-key add "$ssh_pub" --title "$ssh_title"; then
+    rm -rf "$tmpdir"
+    return 1
+  fi
+
+  rm -rf "$tmpdir"
+  printf 'Published GPG and SSH public keys to GitHub\n'
+}
+
 function _git-crypt-require-cmd {
   if ! command -v "$1" >/dev/null 2>&1; then
     printf 'Missing required command: %s\n' "$1" >&2

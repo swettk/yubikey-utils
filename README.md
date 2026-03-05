@@ -1,31 +1,24 @@
 # YubiKey Setup Guide
 
-## Important Note
-
-> **DO NOT** run `setup-yubikey` with `sudo`.
+> **Do not run `setup-yubikey` with `sudo`.**
 > The script prompts for elevated access only when needed.
 
-## Table of Contents
+## Quickstart
 
-- [Setup and Initialization](#setup-and-initialization)
-  - [Command Reference](#command-reference)
-  - [Prepare for Setup](#prepare-for-setup)
-  - [Important Note About the USB Flash Drive](#important-note-about-the-usb-flash-drive)
-  - [Edit Your Variables](#edit-your-variables)
-  - [Initialize the Script](#initialize-the-script)
-- [Put Keys on Your YubiKey](#put-keys-on-your-yubikey)
-- [Put Keys on Your Computer](#put-keys-on-your-computer)
-- [Test That Your Keys Exist](#test-that-your-keys-exist)
-- [Add Keys to GitHub/GitLab/Key-Pository](#add-keys-to-githubgitlabkey-pository)
-- [Set Up Git Configuration](#set-up-git-configuration)
-- [Test SSH Access](#test-ssh-access)
-- [Optional: LUKS Container Support](#optional-luks-container-support)
-- [FIDO and Other Modes](#fido-and-other-modes)
-- [Other Guides](#other-guides)
+From the repository root:
 
-## Setup and Initialization
+```bash
+./setup-yubikey oneshot
+```
 
-### Command Reference
+`oneshot` runs the full guided flow:
+- `setup-vars`
+- `init-ez`
+- `setup-key-ez`
+- `setup-gpg-agent`
+- `setup-gpg-helpers`
+
+## Command Reference
 
 Run any command with:
 
@@ -46,184 +39,38 @@ keys-to-user
 enable-hmac
 setup-gpg-agent
 setup-gpg-helpers
-oneshot
 setup-vars
+oneshot
+help
 ```
 
-After running `./setup-yubikey setup-gpg-helpers`, helper shell functions are available including `copy-remote-gpg-stubs`, `export-gpg-pubkey`, `setup-ssh-forwarding`, `setup-git-commit-signing`, `setup-git-ez`, `test-gpg-signing`, `test-git-config`, `key-to-gh`, and `create-luks-container`.
+## Setup Notes
 
-### Prepare for Setup
-
-- Insert a dedicated USB drive with no important data.
-- Format the USB drive.
-  - Insert the USB drive.
-  - Open the **Disks** application and select the USB drive in the left pane.
-  - In the right pane under Volumes, click the gear icon and choose **Format Partition**.
-  - Set a **Volume Name** such as `Yubikey Backup`.
-  - Leave **Erase** off (erase takes longer).
-  - Choose **Internal disk for use with Linux systems only (Ext4)** and click **Next**.
-  - Confirm the target device is your USB drive and click **Format**.
-- Move the downloaded zip archive to the formatted USB drive.
-- Extract files to the USB drive.
-
-### Important Note About the USB Flash Drive
-
-> - Your external flash drive is your backup.
-> - You may create multiple copies if needed.
-> - Physically secure the drive (and any copies), ideally in a safe location.
-> - Store it separately from your YubiKey.
-> - Do not carry the backup drive with you.
-
-### Edit Your Variables
-
-- Edit all values in `setup_variables` in the extracted `yubikey-work` directory.
-- Your `KEYPIN` is the PIN you will use regularly for authentication.
+- `setup-vars` writes `setup_variables` interactively, with hidden/confirmed entry for secrets.
 - Keep `setup_variables` private and never commit populated values.
+- Keep your backup media physically separate from your YubiKey.
 
-### Initialize the Script
+## After Setup
 
-You must run commands from the same directory as `setup-yubikey`.
-
-Run the quick initialization flow:
-
-```bash
-./setup-yubikey init-ez
-```
-
-Or run the steps manually:
-
-```bash
-./setup-yubikey init
-./setup-yubikey generate-master
-```
-
-If initialization does not complete cleanly, rerun the command and confirm all prompts finished.
-
-## Put Keys on Your YubiKey
-
-Insert your YubiKey (if not already inserted), then run:
-
-```bash
-./setup-yubikey setup-key-ez
-```
-
-Or run the steps manually:
-
-```bash
-./setup-yubikey reset-yubikey
-./setup-yubikey keys-to-card
-./setup-yubikey enable-hmac
-```
-
-## Put Keys on Your Computer
-
-Run:
-
-```bash
-./setup-yubikey keys-to-user
-./setup-yubikey setup-gpg-agent
-source ~/.bashrc
-```
-
-- `keys-to-user` copies key stubs to `~/.gnupg` and sets permissions.
-- `setup-gpg-agent` configures and starts `gpg-agent` for SSH support.
-- If your shell is zsh, source `~/.zshrc` instead.
-
-## Test That Your Keys Exist
-
-Run:
+Verify local keys:
 
 ```bash
 gpg --list-keys
 ssh-add -L
 ```
 
-- `gpg --list-keys` lists available keys.
-- `ssh-add -L` shows loaded SSH public keys.
-- If no SSH key appears, restart your shell session (or reboot) and retry.
+After running `./setup-yubikey setup-gpg-helpers`, helper shell functions become available in your shell profile, including:
 
-## Add Keys to GitHub/GitLab/Key-Pository
+- `setup-git-ez`
+- `setup-git-commit-signing`
+- `test-git-config`
+- `test-gpg-signing`
+- `setup-ssh-forwarding`
+- `copy-remote-gpg-stubs`
+- `export-gpg-pubkey`
+- `key-to-gh`
+- `create-luks-container` (Linux only)
 
-- Show SSH public key:
+## License
 
-```bash
-ssh-add -L | grep card
-```
-
-- Copy the key and add it to GitHub/GitLab as a new SSH key.
-- Test access (example GitLab host):
-
-```bash
-ssh -T git@gitlab.ntrprise.net
-```
-
-- Show your GPG public key:
-
-```bash
-gpg --armor --export
-```
-
-- Copy the key and add it to your profile as a signing key.
-
-## Set Up Git Configuration
-
-Configure global git commit signing with your YubiKey-backed key:
-
-```bash
-setup-git-ez
-```
-
-This flow:
-- updates global git name/email/signing settings,
-- points git to your signing key,
-- prints your current git config,
-- runs a signing test.
-
-Or run steps manually:
-
-```bash
-setup-git-commit-signing
-test-git-config
-test-gpg-signing
-```
-
-## Test SSH Access
-
-After adding your key to GitLab/GitHub, configure forwarding:
-
-```bash
-setup-ssh-forwarding
-copy-remote-gpg-stubs <user@host>
-source ~/.bashrc
-ssh -A <host>
-```
-
-- `setup-ssh-forwarding` updates your SSH config for agent and GPG socket forwarding.
-- `copy-remote-gpg-stubs` imports your public key and subkey stubs on the remote host (from `gpg-helpers.sh`, after running `setup-gpg-helpers`).
-- `ssh -A` forwards your local YubiKey-backed SSH credentials to the remote session.
-
-## YubiKey Setup Is Complete
-
-## Optional: LUKS Container Support
-
-Run:
-
-```bash
-./setup-yubikey init
-create-luks-container
-```
-
-- Creates an encrypted LUKS volume (size/location configurable in `setup_variables`).
-- Unlock requires both your YubiKey challenge-response and PIN.
-- Consider sourcing `openvault.bash` in your shell rc for convenient lock/unlock helpers.
-- LUKS flow is Linux-only and exits early on macOS.
-
-## FIDO and Other Modes
-
-- Your YubiKey supports additional MFA modes beyond OpenPGP.
-- Strongly consider enabling it for Google Workspace and other identity providers:
-  <https://support.google.com/accounts/answer/6103523>
-
-## Other Guides
-
-If you need MFA on AWS CLI, see `AWS-CLI-Setup.md` in this repository.
+This project is licensed under the MIT License. See `LICENSE`.

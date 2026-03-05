@@ -126,17 +126,18 @@ function gpg-setup-ssh-forwarding {
     cat << EOF >> "$ssh_config"
 
 # >>> yubikey-work forwarding >>>
-Host *
-  ForwardAgent yes
-  IdentityAgent ${agent_ssh_socket}
-  StreamLocalBindUnlink yes
-  RemoteForward ~/.gnupg/S.gpg-agent ${agent_extra_socket}
+# Uncomment the following lines to enable YubiKey-backed SSH and GPG forwarding:
+# Host *
+#   ForwardAgent yes
+#   IdentityAgent ${agent_ssh_socket}
+#   StreamLocalBindUnlink yes
+#   RemoteForward ~/.gnupg/S.gpg-agent ${agent_extra_socket}
 # <<< yubikey-work forwarding <<<
 EOF
   fi
 
-  echo "Configured ssh forwarding in $ssh_config"
-  echo "Use ssh -A <host> to forward your YubiKey-backed ssh key."
+  echo "Added ssh forwarding example to $ssh_config (commented out)"
+  echo "Uncomment the Host block to enable forwarding, then use ssh -A <host>."
 }
 
 function gpg-copy-remote-gpg-stubs {
@@ -768,7 +769,7 @@ function _gpg-parse-encrypted-files {
   done < <(git-crypt status -e)
 }
 
-function gpg-rekey {
+function gpg-gitcrypt-rekey {
   local skip_unlock=0
   local gh_secret_mode="prompt"
   local gh_repo
@@ -798,7 +799,7 @@ function gpg-rekey {
         ;;
       *)
         printf 'Unknown option: %s\n' "$arg" >&2
-        printf 'Usage: gpg-rekey [--no-unlock] [--update-gh-secret|--no-update-gh-secret]\n' >&2
+        printf 'Usage: gpg-gitcrypt-rekey [--no-unlock] [--update-gh-secret|--no-update-gh-secret]\n' >&2
         return 1
         ;;
     esac
@@ -1194,7 +1195,7 @@ function gpg-add-gpg-user-interactive {
   git-crypt add-gpg-user "$user_id"
 }
 
-function gpg-remove-gpg-user {
+function gpg-gitcrypt-remove-gpg-user {
   local target_user
   local target_file
   local -a recipient_files
@@ -1315,7 +1316,7 @@ function gpg-remove-gpg-user {
   printf 'Removed recipient key for: %s\n' "$target_user"
   printf 'Rotating repository symmetric key to revoke prior access...\n'
 
-  gpg-rekey --no-unlock
+  gpg-gitcrypt-rekey --no-unlock
 }
 
 function _gpg-first-fingerprint {
@@ -1596,12 +1597,12 @@ function gpg-test-sandbox {
         exit 1
       fi
 
-      if GNUPGHOME="$alice_home" gpg-remove-gpg-user "$alice_fpr" >/dev/null 2>&1; then
+      if GNUPGHOME="$alice_home" gpg-gitcrypt-remove-gpg-user "$alice_fpr" >/dev/null 2>&1; then
         printf 'Self-removal guard failed\n' >&2
         exit 1
       fi
 
-      GNUPGHOME="$alice_home" gpg-remove-gpg-user "$bob_fpr" >/dev/null || {
+      GNUPGHOME="$alice_home" gpg-gitcrypt-remove-gpg-user "$bob_fpr" >/dev/null || {
         printf 'Failed to remove Bob recipient\n' >&2
         exit 1
       }

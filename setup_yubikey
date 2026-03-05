@@ -103,6 +103,10 @@ function setup_ssh_forwarding {
   git-crypt-setup-ssh-forwarding "$SHELL_RC" "$OS"
 }
 
+function setup_git_crypt_helpers {
+  git-crypt-install-helpers "$(dirname "$0")/git-crypt-helpers.sh" "$SHELL_RC"
+}
+
 function copy_remote_gpg_stubs {
   git-crypt-copy-remote-gpg-stubs "${1:-}" "$EMAIL"
 }
@@ -536,6 +540,9 @@ case "${1:-}" in
   'setup-ssh-forwarding')
     setup_ssh_forwarding
     ;;
+  'setup-git-crypt-helpers')
+    setup_git_crypt_helpers
+    ;;
   'copy-remote-gpg-stubs')
     copy_remote_gpg_stubs "${2:-}"
     ;;
@@ -559,7 +566,7 @@ case "${1:-}" in
     test_gpg_signing
     ;;
   *)
-    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|create-luks-container|setup-git-ez|setup-git-commit-signing|setup-gpg-agent|setup-ssh-forwarding|copy-remote-gpg-stubs <user@host>|test-gpg-signing|export-gpg-pubkey|key-to-gh|test-git-config>"
+    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|create-luks-container|setup-git-ez|setup-git-commit-signing|setup-gpg-agent|setup-ssh-forwarding|setup-git-crypt-helpers|copy-remote-gpg-stubs <user@host>|test-gpg-signing|export-gpg-pubkey|key-to-gh|test-git-config>"
     exit 1
     ;;
 esac

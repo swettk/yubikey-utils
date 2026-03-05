@@ -10,6 +10,39 @@ function _git-crypt-ensure-line-in-file {
   fi
 }
 
+function git-crypt-install-helpers {
+  local source_file="${1:-}"
+  local shell_rc="${2:-}"
+  local target_file="$HOME/.git-crypt-helpers.sh"
+  local source_line="[ -f \"\$HOME/.git-crypt-helpers.sh\" ] && source \"\$HOME/.git-crypt-helpers.sh\""
+
+  if [ -z "$source_file" ]; then
+    printf 'Usage: git-crypt-install-helpers <source-file> [shell-rc]\n' >&2
+    return 1
+  fi
+
+  if [ ! -f "$source_file" ]; then
+    printf 'git-crypt helpers source file not found: %s\n' "$source_file" >&2
+    return 1
+  fi
+
+  if [ -z "$shell_rc" ]; then
+    case "${SHELL:-/bin/bash}" in
+      */zsh)  shell_rc="$HOME/.zshrc" ;;
+      */bash) shell_rc="$HOME/.bashrc" ;;
+      *)      shell_rc="$HOME/.profile" ;;
+    esac
+  fi
+
+  cp "$source_file" "$target_file"
+  chmod 600 "$target_file"
+
+  _git-crypt-ensure-line-in-file "$source_line" "$shell_rc"
+
+  echo "Installed git-crypt helpers at $target_file"
+  echo "Added helper source line to $shell_rc"
+}
+
 function git-crypt-setup-gpg-agent {
   local shell_rc="${1:-}"
   local os_name="${2:-$(uname -s)}"

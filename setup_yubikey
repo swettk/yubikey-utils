@@ -143,6 +143,26 @@ function reset_yubikey {
 }
 
 function generate_master {
+  local overwrite_reply
+
+  GENERATE_MASTER_SKIPPED=0
+
+  if [ -d "gnupg_home" ] || compgen -G "*-keyring.tar.gz" >/dev/null; then
+    echo "Detected existing key setup artifacts in this directory."
+    echo -n "Overwrite and regenerate master key material? [y/N]: "
+    read -r overwrite_reply
+
+    case "$overwrite_reply" in
+      [Yy]|[Yy][Ee][Ss])
+        ;;
+      *)
+        echo "Skipping master key generation and keeping existing artifacts."
+        GENERATE_MASTER_SKIPPED=1
+        return 0
+        ;;
+    esac
+  fi
+
   rm -fR gnupg_home
   mkdir -p gnupg_home && chmod 700 gnupg_home && cd gnupg_home
 
@@ -363,7 +383,9 @@ case "${1:-}" in
     echo "Generating Master Key and Directory"
     generate_master
     cleanup
-    echo "Your Public Key for sharing is in $KEYID-pubkey-master.asc"
+    if [ "${GENERATE_MASTER_SKIPPED:-0}" -eq 0 ]; then
+      echo "Your Public Key for sharing is in $KEYID-pubkey-master.asc"
+    fi
     ;;
   'keys-to-card')
     echo "Copy Your Keys to your Yubikey"
@@ -380,31 +402,8 @@ case "${1:-}" in
   'enable-hmac')
     enable_hmac
     ;;
-  'create-luks-container')
-    git-crypt-create-luks-container "$OS" "$LUKS_PATH" "$LUKS_SIZE_IN_GB" "$KEYPIN" "$USER" "$(id -g)" "enable_hmac"
-    ;;
-  'test-gpg-signing')
-    echo "Beginning Test of GPG Signature:"
-    test-gpg-signing
-    ;;
-  'test-git-config')
-    test-git-config
-    ;;
-  'key-to-gh')
-    git-crypt-key-to-gh "$EMAIL" "$REALNAME"
-    ;;
-  'setup-git-commit-signing')
-    echo "Modifying global git config to sign commits with your GPG key"
-    git-crypt-setup-git-commit-signing "$REALNAME" "$EMAIL"
-    echo 'Git Config Updated!'
-    sleep 1
-    echo 'Consider Test your signing with: "./setup_yubikey test-gpg-signing"'
-    ;;
   'setup-gpg-agent')
     setup_gpg_agent
-    ;;
-  'setup-ssh-forwarding')
-    setup-ssh-forwarding "$SHELL_RC" "$OS"
     ;;
   'setup-git-crypt-helpers')
     setup_git_crypt_helpers
@@ -417,11 +416,8 @@ case "${1:-}" in
     echo "Reseting YubiKey and copying user keys there"
     setup_key_ez
     ;;
-  'setup-git-ez')
-    setup-git-ez "$REALNAME" "$EMAIL"
-    ;;
   *)
-    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|create-luks-container|setup-git-ez|setup-git-commit-signing|setup-gpg-agent|setup-ssh-forwarding|setup-git-crypt-helpers|test-gpg-signing|key-to-gh|test-git-config>"
+    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|setup-gpg-agent|setup-git-crypt-helpers>"
     exit 1
     ;;
 esac

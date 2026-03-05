@@ -11,7 +11,7 @@ Prefer minimal, explicit, backward-compatible edits.
 3. Keep diffs small; preserve CLI names and behavior unless change is requested.
 4. Never commit secrets or populate `setup_variables` in tracked changes.
 5. Validate touched scripts with `shellcheck setup_yubikey openvault.bash git-crypt-helpers.sh`.
-6. Run one quick check when possible: `./setup_yubikey test-git-config`.
+6. Run one quick check when possible: `source ./git-crypt-helpers.sh && test-git-config`.
 7. If hardware-dependent checks cannot run, explicitly note what was not verified.
 
 ## Repository Layout
@@ -45,8 +45,7 @@ Current commands:
 
 ```text
 init, init-ez, reset-yubikey, generate-master, setup-key-ez, keys-to-card,
-keys-to-user, enable-hmac, create-luks-container, setup-git-ez,
-setup-git-commit-signing, test-gpg-signing, test-git-config
+keys-to-user, enable-hmac, setup-gpg-agent, setup-git-crypt-helpers
 ```
 
 ## Lint
@@ -63,16 +62,18 @@ Testing is command-based and partly environment/hardware dependent.
 Quick validations:
 
 ```bash
-./setup_yubikey test-git-config
-./setup_yubikey test-gpg-signing
+source ./git-crypt-helpers.sh
+test-git-config
+# or
+test-gpg-signing
 ```
 
 Single-test equivalent (run one check only):
 
 ```bash
-./setup_yubikey test-git-config
+source ./git-crypt-helpers.sh && test-git-config
 # or
-./setup_yubikey test-gpg-signing
+source ./git-crypt-helpers.sh && test-gpg-signing
 ```
 
 `git-crypt-helpers.sh` includes an end-to-end sandbox function:
@@ -86,7 +87,7 @@ Recommended pre-PR verification:
 
 ```bash
 shellcheck setup_yubikey openvault.bash git-crypt-helpers.sh
-./setup_yubikey test-git-config
+source ./git-crypt-helpers.sh && test-git-config
 ```
 
 Run `test-gpg-signing` only where GPG key material is configured.

@@ -44,16 +44,11 @@ setup-key-ez
 keys-to-card
 keys-to-user
 enable-hmac
-create-luks-container
-setup-git-ez
-setup-git-commit-signing
 setup-gpg-agent
-setup-ssh-forwarding
-test-gpg-signing
-test-git-config
+setup-git-crypt-helpers
 ```
 
-After running `./setup_yubikey setup-git-crypt-helpers`, helper shell functions are available including `copy-remote-gpg-stubs` and `export-gpg-pubkey`.
+After running `./setup_yubikey setup-git-crypt-helpers`, helper shell functions are available including `copy-remote-gpg-stubs`, `export-gpg-pubkey`, `setup-ssh-forwarding`, `setup-git-commit-signing`, `setup-git-ez`, `test-gpg-signing`, `test-git-config`, `key-to-gh`, and `create-luks-container`.
 
 ### Prepare for Setup
 
@@ -173,7 +168,7 @@ gpg --armor --export
 Configure global git commit signing with your YubiKey-backed key:
 
 ```bash
-./setup_yubikey setup-git-ez
+setup-git-ez
 ```
 
 This flow:
@@ -185,9 +180,9 @@ This flow:
 Or run steps manually:
 
 ```bash
-./setup_yubikey setup-git-commit-signing
-./setup_yubikey test-git-config
-./setup_yubikey test-gpg-signing
+setup-git-commit-signing
+test-git-config
+test-gpg-signing
 ```
 
 ## Test SSH Access
@@ -195,7 +190,7 @@ Or run steps manually:
 After adding your key to GitLab/GitHub, configure forwarding:
 
 ```bash
-./setup_yubikey setup-ssh-forwarding
+setup-ssh-forwarding
 copy-remote-gpg-stubs <user@host>
 source ~/.bashrc
 ssh -A <host>
@@ -213,7 +208,7 @@ Run:
 
 ```bash
 ./setup_yubikey init
-./setup_yubikey create-luks-container
+create-luks-container
 ```
 
 - Creates an encrypted LUKS volume (size/location configurable in `setup_variables`).

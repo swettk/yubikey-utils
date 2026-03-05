@@ -87,7 +87,61 @@ function setup_key_ez {
 }
 
 function setup_gpg_agent {
-  gpg-setup-gpg-agent "$SHELL_RC" "$OS"
+  local gnupg_dir="$HOME/.gnupg"
+  local gpg_agent_conf="$gnupg_dir/gpg-agent.conf"
+  local pinentry_path
+  local stubs_dir
+  local now
+
+  stubs_dir="$(dirname "$0")/gnupg_home_stubs"
+
+  # Copy gnupg_home_stubs to ~/.gnupg/
+  if [ -d "$stubs_dir" ]; then
+    if [ -e "$gnupg_dir" ]; then
+      now="$(date +"%Y%m%d-%s")"
+      echo "Backing up existing $gnupg_dir to ${gnupg_dir}.${now}"
+      mv "$gnupg_dir" "${gnupg_dir}.${now}"
+    fi
+    cp -a "$stubs_dir" "$gnupg_dir"
+    chown -R "$(whoami)" "$gnupg_dir"
+    find "$gnupg_dir" -type f -exec chmod 600 {} \;
+    find "$gnupg_dir" -type d -exec chmod 700 {} \;
+    echo "Copied gnupg_home_stubs to $gnupg_dir"
+  else
+    echo "Warning: gnupg_home_stubs directory not found at $stubs_dir; skipping copy." >&2
+    mkdir -p "$gnupg_dir"
+    chmod 700 "$gnupg_dir"
+  fi
+
+  # Determine pinentry path
+  if [ "$OS" = "Darwin" ]; then
+    pinentry_path="$(command -v pinentry-mac 2>/dev/null || echo /opt/homebrew/bin/pinentry-mac)"
+  else
+    pinentry_path="$(command -v pinentry-gnome3 2>/dev/null || command -v pinentry-curses 2>/dev/null || echo /usr/bin/pinentry-gnome3)"
+  fi
+
+  # Configure gpg-agent
+  touch "$gpg_agent_conf"
+  chmod 600 "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "enable-ssh-support" "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "default-cache-ttl 600" "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "max-cache-ttl 7200" "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "default-cache-ttl-ssh 600" "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "max-cache-ttl-ssh 7200" "$gpg_agent_conf"
+  _gpg-ensure-line-in-file "pinentry-program ${pinentry_path}" "$gpg_agent_conf"
+
+  # Add shell rc lines
+  _gpg-ensure-line-in-file "export GPG_TTY=\$(tty)" "$SHELL_RC"
+  _gpg-ensure-line-in-file "gpgconf --launch gpg-agent" "$SHELL_RC"
+  _gpg-ensure-line-in-file "export SSH_AUTH_SOCK=\$(gpgconf --list-dirs agent-ssh-socket)" "$SHELL_RC"
+
+  # Restart gpg-agent
+  gpgconf --kill gpg-agent || true
+  gpgconf --launch gpg-agent
+  gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true
+
+  echo "Configured gpg-agent with ssh support."
+  echo "Reload your shell to pick up SSH_AUTH_SOCK from $SHELL_RC"
 }
 
 function setup_gpg_helpers {
@@ -112,12 +166,13 @@ function _prompt_nonempty_value {
   local value=""
 
   while true; do
-    read -r -p "$prompt" value
+    printf '%s' "$prompt" > /dev/tty
+    read -r value < /dev/tty
     if [ -n "$value" ]; then
       printf '%s' "$value"
       return 0
     fi
-    echo "Value cannot be empty."
+    echo "Value cannot be empty." > /dev/tty
   done
 }
 
@@ -128,23 +183,25 @@ function _prompt_secret_value {
   local confirm=""
 
   while true; do
-    read -r -s -p "$prompt" value
-    echo ""
-    read -r -s -p "Confirm: " confirm
-    echo ""
+    printf '%s' "$prompt" > /dev/tty
+    read -r -s value < /dev/tty
+    echo "" > /dev/tty
+    printf '%s' "Confirm: " > /dev/tty
+    read -r -s confirm < /dev/tty
+    echo "" > /dev/tty
 
     if [ -z "$value" ]; then
-      echo "Value cannot be empty."
+      echo "Value cannot be empty." > /dev/tty
       continue
     fi
 
     if [ "$value" != "$confirm" ]; then
-      echo "Values do not match. Try again."
+      echo "Values do not match. Try again." > /dev/tty
       continue
     fi
 
     if [ "$min_len" -gt 0 ] && [ "${#value}" -lt "$min_len" ]; then
-      echo "Value must be at least $min_len characters."
+      echo "Value must be at least $min_len characters." > /dev/tty
       continue
     fi
 
@@ -410,6 +467,7 @@ $gpgcmd --armor --export-secret-subkeys $KEYID > "$GNUPGHOME/sub.key"
 
 (cd ../ && COPYFILE_DISABLE=1 tar -cvvf - ./gnupg_home/ | gzip > "$KEYID-keyring.tar.gz") > /dev/null 2>&1
 echo "Generated Master Keyring and backed up into $KEYID-keyring.tar.gz"
+cd ../ #Back out
 }
 
 function keys_to_card {

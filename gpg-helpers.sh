@@ -102,9 +102,6 @@ function gpg-setup-gpg-agent {
   gpgconf --kill gpg-agent || true
   gpgconf --launch gpg-agent
   gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true
-
-  echo "Configured gpg-agent with ssh support."
-  echo "Reload your shell to pick up SSH_AUTH_SOCK from $shell_rc"
 }
 
 function gpg-setup-ssh-forwarding {

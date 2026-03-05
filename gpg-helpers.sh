@@ -395,8 +395,7 @@ runs:
         rm -f "$RUNNER_TEMP/git-crypt-key"
 EOF
 
-  shopt -s nullglob
-  for workflow in .github/workflows/*.yml .github/workflows/*.yaml; do
+  while IFS= read -r workflow; do
     workflow_count=$((workflow_count + 1))
     tmp_file="${workflow}.tmp"
 
@@ -438,8 +437,7 @@ EOF
         }
       }
     ' "$workflow" >"$tmp_file" && mv "$tmp_file" "$workflow"
-  done
-  shopt -u nullglob
+  done < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
 
   if [ "$workflow_count" -eq 0 ]; then
     printf 'No workflow files found in .github/workflows; created %s\n' "$action_file"
@@ -448,7 +446,7 @@ EOF
 
 function gpg-set-gh-secret {
   local repo
-  local status=0
+  local rc=0
   local xtrace_was_on=0
   local update_actions=1
 
@@ -465,26 +463,26 @@ function gpg-set-gh-secret {
 
   if ! gh auth status >/dev/null 2>&1; then
     printf 'gh is not authenticated. Run: gh auth login\n' >&2
-    status=1
+    rc=1
   else
-    repo="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')" || status=1
+    repo="$(gh repo view --json nameWithOwner --jq '.nameWithOwner')" || rc=1
   fi
 
-  if [ "$status" -eq 0 ]; then
+  if [ "$rc" -eq 0 ]; then
     if ! (set -o pipefail; git-crypt export-key - | base64 | tr -d '\n' | gh secret set GITCRYPT_KEY --repo "$repo"); then
-      status=1
+      rc=1
     fi
   fi
 
-  if [ "$status" -eq 0 ] && [ "$update_actions" -eq 1 ]; then
-    gpg-init-gh-actions || status=1
+  if [ "$rc" -eq 0 ] && [ "$update_actions" -eq 1 ]; then
+    gpg-init-gh-actions || rc=1
   fi
 
   if [ "$xtrace_was_on" -eq 1 ]; then
     set -x
   fi
 
-  return "$status"
+  return "$rc"
 }
 
 function gpg-import-keys-to-github {

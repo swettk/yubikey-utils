@@ -6,9 +6,9 @@
 #   REALNAME='Firstname Lastname'
 #   EMAIL='youremail@yourdomain.com'
 #
-PASSPHRASE=''
-REALNAME=''
-EMAIL=''
+PASSPHRASE='asdfASDF1234'
+REALNAME='Valued Employee'
+EMAIL='valued@a.com'
 
 # Yubikey Parameters
 # Values do NOT need to be numeric
@@ -17,9 +17,9 @@ EMAIL=''
 #   ADMINPIN='111222111' # Must be at least 8 chars
 #   RESETCODE='91734682' # Must be at least 8 chars
 #
-KEYPIN='' # Must be at least 6 chars; used often to unlock the yubikey
-ADMINPIN='' # Must be at least 8 chars
-RESETCODE='' # Must be at least 8 chars
+KEYPIN='654321' # Must be at least 6 chars; used often to unlock the yubikey
+ADMINPIN='11122211' # Must be at least 8 chars
+RESETCODE='87654321' # Must be at least 8 chars
 
 # LUKS Parameters -- Typically, leave these alone
 LUKS_SIZE_IN_GB='500'

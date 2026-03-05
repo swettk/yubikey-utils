@@ -11,6 +11,18 @@ then
   exit 1
 fi
 
+if [ "${#KEYPIN}" -lt 6 ]
+then
+  echo "KEYPIN must be at least 6 characters. Review and edit 'setup_variables' and try again."
+  exit 1
+fi
+
+if [ "${#ADMINPIN}" -lt 8 ] || [ "${#RESETCODE}" -lt 8 ]
+then
+  echo "ADMINPIN and RESETCODE must each be at least 8 characters. Review and edit 'setup_variables' and try again."
+  exit 1
+fi
+
 # Public Key Save Path
 # Used to export publickeys for user to upload to gitlab web UI
 PUBKEY_PATH="${HOME}/Documents/myPublicKeys/"
@@ -19,6 +31,8 @@ if [ ! -d ~/.gnupg/ ]
 then
   mkdir -p ~/.gnupg/
 fi
+
+chmod 700 ~/.gnupg/
 
 ## Don't modify below
 OS="$(uname -s)"
@@ -249,8 +263,8 @@ function reset_yubikey {
   ykman openpgp reset -f
   ykman oath reset -f
   ykman hsmauth reset -f
-  read -r -p "Unplug your YubiKey, plug it back in (within 5 seconds), then press Enter to continue with FIDO reset... "
-  ykman fido reset -f
+  #read -r -p "Unplug your YubiKey, plug it back in (within 5 seconds), then press Enter to continue with FIDO reset... "
+  #ykman fido reset -f
   ykman config usb --disable OTP -f
 }
 
@@ -324,48 +338,68 @@ function keys_to_card {
   export GNUPGHOME="$(pwd)"
   cleanup
   KEYID=$(gpg --list-options show-only-fpr-mbox --list-secret-keys 2>/dev/null | awk '{print $1;}')
+echo 'start'
 
   #Prompts to update YubiKey with user PIN, Admin PIN, and Reset Code
 (
 {
   echo admin
+  sleep 2
   echo passwd
+  sleep 2
   echo 1
+  sleep 2
   echo 123456
+  sleep 2
   echo ${KEYPIN}
+  sleep 2
   echo ${KEYPIN}
+  sleep 2
 
   echo 3
+  sleep 2
   echo 12345678
+  sleep 2
   echo ${ADMINPIN}
+  sleep 2
   echo ${ADMINPIN}
+  sleep 2
 
   echo 4
+  sleep 2
   echo ${ADMINPIN}
+  sleep 2
   echo ${RESETCODE}
+  sleep 2
   echo ${RESETCODE}
+  sleep 2
 
-  echo q
+  echo Q
+
   sleep 2
 
   echo key-attr
   echo 2
+  sleep 2
   echo 1
   sleep 2
+  echo ${ADMINPIN}
 
   echo 2
   echo 1
+  sleep 2
   echo ${ADMINPIN}
   sleep 2
 
   echo 2
   echo 1
+  sleep 2
   echo ${ADMINPIN}
+  sleep 2
 
-  echo q
-  echo exit
-} | gpg --command-fd=0 --status-fd=1 --pinentry-mode=loopback --card-edit
-
+  echo quit
+}| gpg --command-fd=0 --status-fd=1 --pinentry-mode=loopback --card-edit
+exit
 #Prompts to move local generated keys to YubiKey slots 1, 2, and 3
 {
   echo toggle
@@ -511,7 +545,6 @@ case "${1:-}" in
     init_ez
     ;;
   'setup-key-ez')
-    set -x
     echo "Reseting YubiKey and copying user keys there"
     setup_key_ez
     ;;

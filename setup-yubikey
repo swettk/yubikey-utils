@@ -348,7 +348,7 @@ function enable_hmac {
   sleep 5
   if [[ -f "$(pwd)/hmac_key" ]]; then
     echo "Found existing hmac key, loading in slot 2"
-    key="$(cat "${HOME}/hmac_key")"
+    key="$(cat "$(pwd)/hmac_key")"
     $SUDO_PREFIX ykpersonalize -a"${key}" -y -2 -ochal-resp -ochal-hmac -ohmac-lt64 -oserial-api-visible 1>/dev/null
   else
     echo "Generating new hmac key, loading in slot 2"

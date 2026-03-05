@@ -184,6 +184,151 @@ function git-crypt-copy-remote-gpg-stubs {
   echo "Now connect with: ssh -A $remote_host"
 }
 
+function copy-remote-gpg-stubs {
+  git-crypt-copy-remote-gpg-stubs "$@"
+}
+
+function git-crypt-export-gpg-pubkey {
+  local pubkey_dir="${1:-$HOME/Documents/myPublicKeys}"
+  local key_identity="${2:-}"
+  local pubkey_file
+
+  mkdir -p "$pubkey_dir"
+  pubkey_file="$pubkey_dir/gpg.pubkey"
+
+  if [ -n "$key_identity" ]; then
+    gpg --armor --export "$key_identity" > "$pubkey_file"
+  else
+    gpg --armor --export > "$pubkey_file"
+  fi
+
+  printf 'Exported GPG public key to %s\n' "$pubkey_file"
+}
+
+function export-gpg-pubkey {
+  git-crypt-export-gpg-pubkey "$@"
+}
+
+function git-crypt-setup-git-commit-signing {
+  local real_name="${1:-}"
+  local email="${2:-}"
+  local signing_key
+
+  signing_key="$(gpg --list-secret-keys --keyid-format LONG | grep sec | cut -d ' ' -f4 | cut -c9-)"
+
+  git config --global commit.gpgsign true
+  git config --global user.signingkey "$signing_key"
+  git config --global user.name "$real_name"
+  git config --global user.email "$email"
+}
+
+function setup-git-commit-signing {
+  git-crypt-setup-git-commit-signing "$@"
+}
+
+function git-crypt-key-to-gh {
+  git-crypt-import-keys-to-github "${1:-}" "${2:-}"
+}
+
+function key-to-gh {
+  git-crypt-key-to-gh "$@"
+}
+
+function git-crypt-create-luks-container {
+  local os_name="${1:-}"
+  local luks_path="${2:-}"
+  local luks_size_in_gb="${3:-}"
+  local keypin="${4:-}"
+  local username="${5:-}"
+  local group_id="${6:-}"
+  local enable_hmac_cmd="${7:-enable_hmac}"
+
+  if [[ "$os_name" == "Darwin" ]]; then
+    echo "LUKS containers are not supported on macOS (requires Linux dm-crypt)."
+    return 1
+  fi
+
+  if [ -f "$luks_path" ]; then
+    echo "File Exists for luks container, remove by hand before continue"
+    return 1
+  fi
+
+  "$enable_hmac_cmd"
+  dd of="$luks_path" if=/dev/zero bs=1G count=0 seek="$luks_size_in_gb" 1> /dev/null
+  echo -n "$(ykchalresp -2 "$keypin")" | cryptsetup -v --pbkdf pbkdf2 luksFormat "$luks_path"
+  echo -n "$(ykchalresp -2 "$keypin")" | sudo cryptsetup open "$luks_path" luks &>/dev/null
+  sudo mkfs.ext4 /dev/mapper/luks > /dev/null 2>&1
+  sudo fsck /dev/mapper/luks > /dev/null 2>&1
+  mkdir -p "$HOME/luks"
+  sudo mount /dev/mapper/luks "$HOME/luks"
+  sudo chown -R "$username:$group_id" "$HOME/luks"
+  echo ""
+  echo "*****************************************************************"
+  echo "consider including openvault.bash in your shellrc "
+  echo "file of choice for easier lock/unlock"
+  echo "container is locked based on your hmac key stored in your"
+  echo "yubikey and your pin, please make sure this directory"
+  echo "is backed up appropriately"
+  echo "your luks container is portable, you can back it up or move"
+  echo "it between laptops, but it will require a yubikey to open"
+  echo "*****************************************************************"
+}
+
+function create-luks-container {
+  git-crypt-create-luks-container "$@"
+}
+
+function git-crypt-test-gpg-signing {
+  echo "Begin Signature Test"
+  echo "********************"
+  gpg --output ~/rc.sig --sign /etc/hosts 1> /dev/null
+  gpg --verify ~/rc.sig
+  rm -f ~/rc.sig
+  echo ""
+  echo "Signature Test Complete"
+  echo ""
+}
+
+function test-gpg-signing {
+  git-crypt-test-gpg-signing "$@"
+}
+
+function git-crypt-test-git-config {
+  echo 'Current Git Config'
+  echo "******************"
+  echo 'Current Git Name = ' $(git config --get user.name)
+  echo 'Current Git Email = ' $(git config --get user.email)
+  echo 'Automatically sign commits = ' $(git config --get commit.gpgsign)
+  echo ""
+}
+
+function test-git-config {
+  git-crypt-test-git-config "$@"
+}
+
+function git-crypt-setup-git-ez {
+  local real_name="${1:-}"
+  local email="${2:-}"
+
+  echo "Beginning Express Git Configuration..."
+  git-crypt-setup-git-commit-signing "$real_name" "$email"
+  sleep 1
+  echo "Setup Complete! Testing Configuration..."
+  echo ""
+  sleep 1
+  git-crypt-test-git-config
+  sleep 1
+  git-crypt-test-gpg-signing
+}
+
+function setup-git-ez {
+  git-crypt-setup-git-ez "$@"
+}
+
+function setup-ssh-forwarding {
+  git-crypt-setup-ssh-forwarding "$@"
+}
+
 function git-crypt-init {
   git-crypt init || return
 

@@ -49,11 +49,11 @@ setup-git-ez
 setup-git-commit-signing
 setup-gpg-agent
 setup-ssh-forwarding
-copy-remote-gpg-stubs <user@host>
 test-gpg-signing
-export-gpg-pubkey
 test-git-config
 ```
+
+After running `./setup_yubikey setup-git-crypt-helpers`, helper shell functions are available including `copy-remote-gpg-stubs` and `export-gpg-pubkey`.
 
 ### Prepare for Setup
 
@@ -196,13 +196,13 @@ After adding your key to GitLab/GitHub, configure forwarding:
 
 ```bash
 ./setup_yubikey setup-ssh-forwarding
-./setup_yubikey copy-remote-gpg-stubs <user@host>
+copy-remote-gpg-stubs <user@host>
 source ~/.bashrc
 ssh -A <host>
 ```
 
 - `setup-ssh-forwarding` updates your SSH config for agent and GPG socket forwarding.
-- `copy-remote-gpg-stubs` imports your public key and subkey stubs on the remote host.
+- `copy-remote-gpg-stubs` imports your public key and subkey stubs on the remote host (from `git-crypt-helpers.sh`, after running `setup-git-crypt-helpers`).
 - `ssh -A` forwards your local YubiKey-backed SSH credentials to the remote session.
 
 ## YubiKey Setup Is Complete

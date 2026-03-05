@@ -46,7 +46,7 @@ Current commands:
 ```text
 init, init-ez, reset-yubikey, generate-master, setup-key-ez, keys-to-card,
 keys-to-user, enable-hmac, create-luks-container, setup-git-ez,
-setup-git-commit-signing, test-gpg-signing, export-gpg-pubkey, test-git-config
+setup-git-commit-signing, test-gpg-signing, test-git-config
 ```
 
 ## Lint

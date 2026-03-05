@@ -23,10 +23,6 @@ then
   exit 1
 fi
 
-# Public Key Save Path
-# Used to export publickeys for user to upload to gitlab web UI
-PUBKEY_PATH="${HOME}/Documents/myPublicKeys/"
-
 if [ ! -d ~/.gnupg/ ]
 then
   mkdir -p ~/.gnupg/
@@ -79,145 +75,12 @@ function setup_key_ez {
   enable_hmac || true
 }
 
-function setup_git_commit_signing {
-  git config --global commit.gpgsign true # forces gpg signing globally
-  git config --global user.signingkey $(gpg --list-secret-keys --keyid-format LONG | grep sec | cut -d ' ' -f4 | cut -c9-) # Sets the Signing Key to the GPG Key Created
-  git config --global user.name $REALNAME
-  git config --global user.email $EMAIL
-}
-
-function get_git_config {
-  echo 'Current Git Config'
-  echo "******************"
-  echo 'Current Git Name = ' $(git config --get user.name)
-  echo 'Current Git Email = ' $(git config --get user.email)
-  echo 'Automatically sign commits = ' $(git config --get commit.gpgsign)
-  echo ""
-}
-
 function setup_gpg_agent {
   git-crypt-setup-gpg-agent "$SHELL_RC" "$OS"
 }
 
-function setup_ssh_forwarding {
-  git-crypt-setup-ssh-forwarding "$SHELL_RC" "$OS"
-}
-
 function setup_git_crypt_helpers {
   git-crypt-install-helpers "$(dirname "$0")/git-crypt-helpers.sh" "$SHELL_RC"
-}
-
-function copy_remote_gpg_stubs {
-  git-crypt-copy-remote-gpg-stubs "${1:-}" "$EMAIL"
-}
-
-function test_gpg_signing {
-  echo "Begin Signature Test"
-  echo "********************"
-  gpg --output ~/rc.sig --sign /etc/hosts 1> /dev/null
-  gpg --verify ~/rc.sig
-  rm -f ~/rc.sig
-  echo ""
-  echo "Signature Test Complete"
-  echo ""
-}
-
-function export_pubkeys {
-  #echo "$PUBKEY_PATH"
-  mkdir -p "$PUBKEY_PATH"
-  #ssh-add -L > $PUBKEY_PATH/ssh.pubkey # Causing an error with the ssh-agent. Commented out for now
-  gpg --armor --export > $PUBKEY_PATH/gpg.pubkey
-}
-
-function key_to_gh {
-  if ! command -v gh >/dev/null 2>&1; then
-    echo "GitHub CLI (gh) is not installed. Install it first: https://cli.github.com/"
-    exit 1
-  fi
-
-  if ! gh auth status -h github.com >/dev/null 2>&1; then
-    echo "GitHub CLI is not authenticated for github.com. Run: gh auth login"
-    exit 1
-  fi
-
-  local tmpdir
-  local gpg_pub
-  local ssh_pub
-  local host_short
-  local today
-  local gpg_title
-  local ssh_title
-
-  tmpdir="$(mktemp -d)"
-  gpg_pub="$tmpdir/gpg.pub"
-  ssh_pub="$tmpdir/ssh.pub"
-
-  gpg --armor --export "$EMAIL" > "$gpg_pub"
-  if [[ ! -s "$gpg_pub" ]]; then
-    rm -rf "$tmpdir"
-    echo "Unable to export a GPG public key for $EMAIL."
-    exit 1
-  fi
-
-  if ! ssh-add -L > "$ssh_pub" 2>/dev/null; then
-    rm -rf "$tmpdir"
-    echo "Unable to read SSH public keys from ssh-agent."
-    echo "Run ./setup_yubikey setup-ssh-forwarding and ensure your YubiKey auth key is loaded."
-    exit 1
-  fi
-
-  if grep -q "The agent has no identities" "$ssh_pub" || [[ ! -s "$ssh_pub" ]]; then
-    rm -rf "$tmpdir"
-    echo "No SSH public keys found in ssh-agent."
-    echo "Run ./setup_yubikey setup-ssh-forwarding and ensure your YubiKey auth key is loaded."
-    exit 1
-  fi
-
-  host_short="$(hostname -s 2>/dev/null || hostname)"
-  today="$(date +%Y-%m-%d)"
-  gpg_title="${REALNAME} yubikey ${today}"
-  ssh_title="${REALNAME}@${host_short} yubikey ${today}"
-
-  echo "Publishing GPG key to GitHub..."
-  gh gpg-key add "$gpg_pub" --title "$gpg_title"
-
-  echo "Publishing SSH key to GitHub..."
-  gh ssh-key add "$ssh_pub" --title "$ssh_title"
-
-  rm -rf "$tmpdir"
-  echo "Published GPG and SSH public keys to GitHub."
-}
-
-function create_luks_container {
-  if [[ "$OS" == "Darwin" ]]; then
-    echo "LUKS containers are not supported on macOS (requires Linux dm-crypt)."
-    exit 1
-  fi
-  if [ -f "$LUKS_PATH" ]
-  then
-    echo "File Exists for luks container, remove by hand before continue"
-    exit 1
-  else
-    enable_hmac
-    dd of="$LUKS_PATH" if=/dev/zero bs=1G count=0 seek="$LUKS_SIZE_IN_GB" 1> /dev/null
-    echo -n "$(ykchalresp -2 "$KEYPIN")" | cryptsetup -v --pbkdf pbkdf2 luksFormat "$LUKS_PATH"
-    echo -n "$(ykchalresp -2 "$KEYPIN")" | sudo cryptsetup open "$LUKS_PATH" luks &>/dev/null
-    sudo mkfs.ext4 /dev/mapper/luks > /dev/null 2>&1
-    sudo fsck /dev/mapper/luks > /dev/null 2>&1
-  fi
-  mkdir -p "$HOME/luks"
-  sudo mount /dev/mapper/luks "$HOME/luks"
-  sudo chown -R "$USER:$(id -g)" "$HOME/luks"
-  echo ""
-  echo "*****************************************************************"
-  echo "consider including openvault.bash in your shellrc "
-  echo "file of choice for easier lock/unlock"
-  echo "container is locked based on your hmac key stored in your"
-  echo "yubikey and your pin, please make sure this directory"
-  echo "is backed up appropriately"
-  echo "your luks container is portable, you can back it up or move"
-  echo "it between laptops, but it will require a yubikey to open"
-  echo "*****************************************************************"
 }
 
 function cleanup {
@@ -518,25 +381,21 @@ case "${1:-}" in
     enable_hmac
     ;;
   'create-luks-container')
-    create_luks_container
+    git-crypt-create-luks-container "$OS" "$LUKS_PATH" "$LUKS_SIZE_IN_GB" "$KEYPIN" "$USER" "$(id -g)" "enable_hmac"
     ;;
   'test-gpg-signing')
     echo "Beginning Test of GPG Signature:"
-    test_gpg_signing
+    test-gpg-signing
     ;;
   'test-git-config')
-    get_git_config
-    ;;
-  'export-gpg-pubkey')
-    echo "Exporting your GPG public Key to $PUBKEY_PATH"
-    export_pubkeys
+    test-git-config
     ;;
   'key-to-gh')
-    key_to_gh
+    git-crypt-key-to-gh "$EMAIL" "$REALNAME"
     ;;
   'setup-git-commit-signing')
     echo "Modifying global git config to sign commits with your GPG key"
-    setup_git_commit_signing
+    git-crypt-setup-git-commit-signing "$REALNAME" "$EMAIL"
     echo 'Git Config Updated!'
     sleep 1
     echo 'Consider Test your signing with: "./setup_yubikey test-gpg-signing"'
@@ -545,13 +404,10 @@ case "${1:-}" in
     setup_gpg_agent
     ;;
   'setup-ssh-forwarding')
-    setup_ssh_forwarding
+    setup-ssh-forwarding "$SHELL_RC" "$OS"
     ;;
   'setup-git-crypt-helpers')
     setup_git_crypt_helpers
-    ;;
-  'copy-remote-gpg-stubs')
-    copy_remote_gpg_stubs "${2:-}"
     ;;
   'init-ez')
     echo "Initialzing and generating user keys"
@@ -562,18 +418,10 @@ case "${1:-}" in
     setup_key_ez
     ;;
   'setup-git-ez')
-    echo "Beginning Express Git Configuration..."
-    setup_git_commit_signing
-    sleep 1
-    echo "Setup Complete! Testing Configuration..."
-    echo ""
-    sleep 1
-    get_git_config
-    sleep 1
-    test_gpg_signing
+    setup-git-ez "$REALNAME" "$EMAIL"
     ;;
   *)
-    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|create-luks-container|setup-git-ez|setup-git-commit-signing|setup-gpg-agent|setup-ssh-forwarding|setup-git-crypt-helpers|copy-remote-gpg-stubs <user@host>|test-gpg-signing|export-gpg-pubkey|key-to-gh|test-git-config>"
+    echo "Usage: $0 <init|init-ez|reset-yubikey|generate-master|setup-key-ez|keys-to-card|keys-to-user|enable-hmac|create-luks-container|setup-git-ez|setup-git-commit-signing|setup-gpg-agent|setup-ssh-forwarding|setup-git-crypt-helpers|test-gpg-signing|key-to-gh|test-git-config>"
     exit 1
     ;;
 esac

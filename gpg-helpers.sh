@@ -849,7 +849,10 @@ function gpg-rekey {
     fi
   done
 
-  mapfile -t encrypted_files < <(_gpg-parse-encrypted-files)
+  encrypted_files=()
+  while IFS= read -r _gpg_rekey_line; do
+    encrypted_files+=("$_gpg_rekey_line")
+  done < <(_gpg-parse-encrypted-files)
 
   if [ "${#encrypted_files[@]}" -eq 0 ]; then
     printf 'No encrypted files found; recipient keys were rotated.\n'
@@ -932,7 +935,10 @@ function gpg-share-key {
     return 1
   fi
 
-  mapfile -t key_rows < <(
+  key_rows=()
+  while IFS= read -r _gpg_share_line; do
+    key_rows+=("$_gpg_share_line")
+  done < <(
     gpg --list-secret-keys --with-colons --fingerprint 2>/dev/null | awk -F: '
       $1 == "sec" {
         current_fpr = ""
@@ -961,8 +967,15 @@ function gpg-share-key {
     return 1
   fi
 
+  # Normalize to 0-based indexing for zsh compatibility (zsh arrays start at 1)
+  if [ -n "${ZSH_VERSION:-}" ]; then
+    local _base=1
+  else
+    local _base=0
+  fi
+
   if [ "${#key_rows[@]}" -eq 1 ]; then
-    selected="${key_rows[0]}"
+    selected="${key_rows[$_base]}"
   elif command -v fzf >/dev/null 2>&1; then
     if ! selected="$({ printf '%s\n' "${key_rows[@]}"; } | fzf --height=40% --reverse --prompt='Select key to share (Esc to cancel)> ')"; then
       printf 'Selection cancelled\n'
@@ -973,7 +986,7 @@ function gpg-share-key {
     for idx in "${!key_rows[@]}"; do
       uid="${key_rows[$idx]%%$'\t'*}"
       fingerprint="${key_rows[$idx]#*$'\t'}"
-      printf '  %d) %s [%s]\n' "$((idx + 1))" "$uid" "$(_gpg-short-fingerprint "$fingerprint")"
+      printf '  %d) %s [%s]\n' "$((idx - _base + 1))" "$uid" "$(_gpg-short-fingerprint "$fingerprint")"
     done
 
     printf 'Select key number (blank to cancel): '
@@ -989,14 +1002,21 @@ function gpg-share-key {
       return 1
     fi
 
-    selected="${key_rows[$((choice - 1))]}"
+    selected="${key_rows[$((choice - 1 + _base))]}"
   fi
 
   uid="${selected%%$'\t'*}"
   fingerprint="${selected#*$'\t'}"
 
-  if ! armored_key="$(gpg --armor --export "$fingerprint" 2>/dev/null)"; then
+  if ! armored_key="$(gpg --armor --export "$fingerprint")"; then
     printf 'Failed to export selected key\n' >&2
+    return 1
+  fi
+
+  if [ -z "$armored_key" ]; then
+    printf 'No public key data found for fingerprint %s\n' "$(_gpg-short-fingerprint "$fingerprint")" >&2
+    printf 'The secret key stub may exist without the public key in your keyring.\n' >&2
+    printf 'Try importing the public key first: gpg --recv-keys %s\n' "$fingerprint" >&2
     return 1
   fi
 
@@ -1127,7 +1147,10 @@ function gpg-add-gpg-user-interactive {
     return 1
   fi
 
-  mapfile -t key_rows < <(
+  key_rows=()
+  while IFS= read -r _gpg_add_line; do
+    key_rows+=("$_gpg_add_line")
+  done < <(
     gpg --list-keys --with-colons --fingerprint 2>/dev/null | awk -F: '
       $1 == "pub" {
         current_fpr = ""

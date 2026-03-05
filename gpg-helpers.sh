@@ -1050,8 +1050,19 @@ function gpg-import-shared-pubkey {
     share_string="$1"
   else
     printf 'Paste shared key string: '
-    IFS= read -r share_string
+    if [ -t 0 ]; then
+      local old_tty_settings
+      old_tty_settings="$(stty -g)"
+      stty -icanon
+      IFS= read -r share_string
+      stty "$old_tty_settings"
+    else
+      IFS= read -r share_string
+    fi
   fi
+
+  # Strip trailing carriage returns and whitespace that paste may introduce
+  share_string="${share_string%"${share_string##*[![:space:]]}"}"
 
   if [ -z "$share_string" ]; then
     printf 'No shared key string provided\n' >&2
@@ -1123,7 +1134,8 @@ function gpg-import-shared-pubkey {
     return 1
   fi
 
-  printf 'Imported key fingerprint: %s\n' "$sender_fingerprint"
+  printf '%s:6:\n' "$sender_fingerprint" | gpg --import-ownertrust
+  printf 'Imported key fingerprint: %s (ultimate trust)\n' "$sender_fingerprint"
 }
 
 function gpg-add-gpg-user-interactive {

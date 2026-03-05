@@ -399,7 +399,7 @@ echo 'start'
 
   echo quit
 }| gpg --command-fd=0 --status-fd=1 --pinentry-mode=loopback --card-edit
-exit
+
 #Prompts to move local generated keys to YubiKey slots 1, 2, and 3
 {
   echo toggle

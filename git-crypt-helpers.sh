@@ -77,6 +77,7 @@ function git-crypt-setup-gpg-agent {
   _git-crypt-ensure-line-in-file "pinentry-program ${pinentry_path}" "$gpg_agent_conf"
 
   _git-crypt-ensure-line-in-file "export GPG_TTY=\$(tty)" "$shell_rc"
+  _git-crypt-ensure-line-in-file "gpgconf --launch gpg-agent" "$shell_rc"
   _git-crypt-ensure-line-in-file "export SSH_AUTH_SOCK=\$(gpgconf --list-dirs agent-ssh-socket)" "$shell_rc"
 
   gpgconf --kill gpg-agent || true

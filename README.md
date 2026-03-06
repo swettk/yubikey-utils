@@ -105,14 +105,6 @@ After running `./setup-yubikey setup-gpg-helpers`, the following functions becom
 | `gpg-set-gh-secret` | Push the `git-crypt` key to a GitHub repo secret (`GITCRYPT_KEY`) |
 | `gpg-init-gh-actions` | Create a reusable GitHub Action for `git-crypt unlock` |
 
-#### GitHub Actions Runners
-
-| Function | Description |
-|---|---|
-| `register_gh_repo_runner <hostname>` | Register a self-hosted GitHub Actions runner on a remote Linux host for the current repo |
-
-`register_gh_repo_runner` uses `gh` to generate a registration token, SSHs into the target host, installs the latest GitHub Actions runner, and starts it as a systemd service. Requires `gh`, `git`, and `ssh` locally, and root/sudo on the remote host.
-
 #### Diagnostics
 
 | Function | Description |

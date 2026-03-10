@@ -106,6 +106,15 @@ function setup_gpg_agent {
     chown -R "$(whoami)" "$gnupg_dir"
     find "$gnupg_dir" -type f -exec chmod 600 {} \;
     find "$gnupg_dir" -type d -exec chmod 700 {} \;
+    # Remove any private keys that may have been copied from the stubs directory
+    if [ -d "$gnupg_dir/private-keys-v1.d" ]; then
+      rm -f "$gnupg_dir/private-keys-v1.d"/*.key
+      echo "Removed private keys from $gnupg_dir/private-keys-v1.d"
+    fi
+    if [ -f "$gnupg_dir/secring.gpg" ]; then
+      rm -f "$gnupg_dir/secring.gpg"
+      echo "Removed legacy secring.gpg from $gnupg_dir"
+    fi
     echo "Copied gnupg_home_stubs to $gnupg_dir"
   else
     echo "Warning: gnupg_home_stubs directory not found at $stubs_dir; skipping copy." >&2
